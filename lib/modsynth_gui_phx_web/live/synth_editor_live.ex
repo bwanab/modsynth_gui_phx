@@ -5,6 +5,9 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
   def mount(_params, _session, socket) do
     {user_files, example_files} = FileManager.list_synth_files()
     
+    IO.puts("DEBUG: LiveView mount - User files: #{inspect(user_files)}")
+    IO.puts("DEBUG: LiveView mount - Example files: #{inspect(example_files)}")
+    
     socket =
       socket
       |> assign(:user_files, user_files)
@@ -128,6 +131,28 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     end
   end
 
+  def handle_event("delete_node", %{"id" => id}, socket) do
+    node_id = String.to_integer(id)
+    
+    # Remove the node from the nodes list
+    updated_nodes = Enum.reject(socket.assigns.nodes, &(&1["id"] == node_id))
+    
+    # Remove any connections that reference this node
+    updated_connections = 
+      Enum.reject(socket.assigns.connections, fn conn ->
+        conn["from_node"]["id"] == node_id || conn["to_node"]["id"] == node_id
+      end)
+    
+    socket =
+      socket
+      |> assign(:nodes, updated_nodes)
+      |> assign(:connections, updated_connections)
+      |> assign(:selected_node, nil)
+      |> put_flash(:info, "Node deleted successfully")
+    
+    {:noreply, socket}
+  end
+
   def render(assigns) do
     ~H"""
     <div class="h-screen bg-gray-900 text-white overflow-hidden">
@@ -161,21 +186,33 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           </div>
           
           <div class="flex items-center space-x-2">
-            <input 
-              type="text" 
-              placeholder="Enter filename"
-              value={@new_filename}
-              phx-change="update_filename"
-              phx-value-filename={@new_filename}
-              class="px-3 py-1 bg-gray-700 rounded text-sm"
-            />
-            <button 
-              phx-click="save_file"
-              phx-value-filename={@new_filename}
-              class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-sm"
-            >
-              Save
-            </button>
+            <form phx-submit="save_file" class="flex items-center space-x-2">
+              <input 
+                type="text" 
+                name="filename"
+                placeholder="Enter filename"
+                value={@new_filename}
+                phx-change="update_filename"
+                class="px-3 py-1 bg-gray-700 rounded text-sm"
+              />
+              <button 
+                type="submit"
+                class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-sm"
+              >
+                Save
+              </button>
+            </form>
+              
+              <%= if @selected_node do %>
+                <button 
+                  phx-click="delete_node"
+                  phx-value-id={@selected_node}
+                  class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-sm"
+                  onclick="return confirm('Are you sure you want to delete this node and all its connections?')"
+                >
+                  Delete Node
+                </button>
+              <% end %>
           </div>
         </div>
       </div>
@@ -184,13 +221,13 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       <div class="flex h-full">
         <!-- File Browser Sidebar -->
         <div class={["transition-all duration-300 bg-gray-800 overflow-hidden", if(@show_file_browser, do: "w-64", else: "w-0")]}>
-          <div class="p-4">
+          <div class="p-4 h-full overflow-y-auto">
             <h3 class="text-lg font-semibold mb-4">Files</h3>
             
             <!-- User Files -->
             <div class="mb-6">
               <h4 class="text-sm font-medium text-gray-400 mb-2">User Files</h4>
-              <div class="space-y-1">
+              <div class="space-y-1 max-h-48 overflow-y-auto">
                 <%= for file <- @user_files do %>
                   <button 
                     phx-click="load_file"
@@ -206,7 +243,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
             <!-- Example Files -->
             <div>
               <h4 class="text-sm font-medium text-gray-400 mb-2">Examples</h4>
-              <div class="space-y-1">
+              <div class="space-y-1 max-h-96 overflow-y-auto">
                 <%= for file <- @example_files do %>
                   <button 
                     phx-click="load_file"
