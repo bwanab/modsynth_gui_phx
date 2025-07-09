@@ -1,0 +1,39 @@
+Please read the file ../sc_em/Claude.md. This contains the implementation details
+for the backend of this project which is meant to be an editor/ide to allow for editing
+the ../sc_em/examples/ json files and to enable playing the files in real-time and with midi
+files.
+
+There is a bad implementation of this in ../modsynth_gui2 which was build using the elixir Scenic
+library. I have put screen shots in this directory:
+
+
+Screenshot 2025-07-09 at 11.49.10 AM.png
+Screenshot 2025-07-09 at 11.50.46 AM.png
+Screenshot 2025-07-09 at 11.51.58 AM.png
+
+In addition to putting the file on the screen, this implementation gives an example of playing
+a midi file via the loaded synth network.
+
+This gives a notion of what we want in this project. The synth files contain position data, but
+they were made for a different screen and interface so they'll need to be adjusted.
+
+Requirements:
+1. Ablity to load a file. Then using mouse control, move the nodes around with the
+connectors following along.
+2. Reattach the connectors as I wish. In general, a connector should go from an audio output
+to an audio input, and from a control output to a control input. Other connections should give a
+warning, but allowed.
+3. Add new nodes from a list of available node types. The node types are the list of supercollider
+SynthDefs read from the synthdef directory.
+4. Ability to play midi file as described above. Also, and likewise ability to attach an
+external midi device and play it using the loaded synth network.
+
+Nice to haves:
+
+1. I'd like the nodes to be a lot more attractive than in the modsynth_gui2 implementation.
+2. I'd like the connectors to look as much like real patch cords as possible. At the least, they
+should not be straight lines, but curvy looking.
+
+I'm sure I'll come up with more requirements later.
+
+Please come up with an implementation plan to work with. Ask question for any ambiguities.
