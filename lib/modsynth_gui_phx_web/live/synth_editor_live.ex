@@ -1221,9 +1221,24 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     assigns = assign(assigns, :knob_radius, 12)
     
     # Calculate current angle based on value (0-270 degrees for better visual feedback)
-    assigns = assign(assigns, :current_val, assigns.node["val"] || 0.0)
-    assigns = assign(assigns, :min_val, assigns.node["min_val"] || 0.0)
-    assigns = assign(assigns, :max_val, assigns.node["max_val"] || 10.0)
+    current_val = case assigns.node["val"] do
+      nil -> 0.0
+      val when is_number(val) -> val / 1.0
+      _ -> 0.0
+    end
+    assigns = assign(assigns, :current_val, current_val)
+    min_val = case assigns.node["min_val"] do
+      nil -> 0.0
+      val when is_number(val) -> val / 1.0
+      _ -> 0.0
+    end
+    max_val = case assigns.node["max_val"] do
+      nil -> 10.0
+      val when is_number(val) -> val / 1.0
+      _ -> 10.0
+    end
+    assigns = assign(assigns, :min_val, min_val)
+    assigns = assign(assigns, :max_val, max_val)
     
     # Normalize value to 0-1 range, then map to 0-270 degrees
     normalized_val = if assigns.max_val > assigns.min_val do
