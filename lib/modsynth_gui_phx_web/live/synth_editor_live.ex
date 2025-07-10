@@ -21,6 +21,9 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       |> assign(:new_filename, "")
       |> assign(:warnings, [])
       |> assign(:connection_mode, %{active: false, from_node: nil, from_port: nil})
+      |> assign(:context_menu, %{visible: false, x: 0, y: 0, node_id: nil})
+      |> assign(:node_info_modal, %{visible: false, node: nil})
+      |> assign(:node_creation_menu, %{visible: false, x: 0, y: 0, svg_x: 0, svg_y: 0, available_types: []})
 
     {:ok, socket}
   end
@@ -120,7 +123,13 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
   end
 
   def handle_event("clear_selection", _, socket) do
-    {:noreply, assign(socket, :selected_node, nil)}
+    socket =
+      socket
+      |> assign(:selected_node, nil)
+      |> assign(:context_menu, %{visible: false, x: 0, y: 0, node_id: nil})
+      |> assign(:node_creation_menu, %{visible: false, x: 0, y: 0, svg_x: 0, svg_y: 0, available_types: []})
+    
+    {:noreply, socket}
   end
 
   def handle_event("play_synth", _, socket) do
@@ -143,28 +152,6 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     end
   end
 
-  def handle_event("delete_node", %{"id" => id}, socket) do
-    node_id = String.to_integer(id)
-    
-    # Remove the node from the nodes list
-    updated_nodes = Enum.reject(socket.assigns.nodes, &(&1["id"] == node_id))
-    
-    # Remove any connections that reference this node
-    updated_connections = 
-      Enum.reject(socket.assigns.connections, fn conn ->
-        conn["from_node"]["id"] == node_id || conn["to_node"]["id"] == node_id
-      end)
-    
-    socket =
-      socket
-      |> assign(:nodes, updated_nodes)
-      |> assign(:connections, updated_connections)
-      |> assign(:selected_node, nil)
-      |> assign(:connection_mode, %{active: false, from_node: nil, from_port: nil})
-      |> put_flash(:info, "Node deleted successfully")
-    
-    {:noreply, socket}
-  end
 
   def handle_event("port_clicked", %{"node_id" => node_id, "port_type" => port_type, "port_index" => port_index}, socket) do
     node_id = String.to_integer(node_id)
@@ -234,6 +221,189 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     {:noreply, socket}
   end
 
+  def handle_event("show_context_menu", %{"node_id" => node_id, "x" => x, "y" => y}, socket) do
+    # node_id is already an integer from JavaScript
+    socket =
+      socket
+      |> assign(:context_menu, %{
+        visible: true,
+        x: x,
+        y: y,
+        node_id: node_id
+      })
+    
+    {:noreply, socket}
+  end
+
+  def handle_event("hide_context_menu", _, socket) do
+    socket =
+      socket
+      |> assign(:context_menu, %{visible: false, x: 0, y: 0, node_id: nil})
+    
+    {:noreply, socket}
+  end
+
+  def handle_event("context_delete_node", %{"node_id" => node_id}, socket) do
+    # node_id may come as string from template or integer from JS
+    node_id = if is_binary(node_id), do: String.to_integer(node_id), else: node_id
+    
+    # Remove the node from the nodes list
+    updated_nodes = Enum.reject(socket.assigns.nodes, &(&1["id"] == node_id))
+    
+    # Remove any connections that reference this node
+    updated_connections = 
+      Enum.reject(socket.assigns.connections, fn conn ->
+        conn["from_node"]["id"] == node_id || conn["to_node"]["id"] == node_id
+      end)
+    
+    socket =
+      socket
+      |> assign(:nodes, updated_nodes)
+      |> assign(:connections, updated_connections)
+      |> assign(:selected_node, nil)
+      |> assign(:connection_mode, %{active: false, from_node: nil, from_port: nil})
+      |> assign(:context_menu, %{visible: false, x: 0, y: 0, node_id: nil})
+      |> put_flash(:info, "Node deleted successfully")
+    
+    {:noreply, socket}
+  end
+
+  def handle_event("context_show_info", %{"node_id" => node_id}, socket) do
+    # node_id may come as string from template or integer from JS
+    node_id = if is_binary(node_id), do: String.to_integer(node_id), else: node_id
+    node = Enum.find(socket.assigns.nodes, &(&1["id"] == node_id))
+    
+    socket =
+      socket
+      |> assign(:context_menu, %{visible: false, x: 0, y: 0, node_id: nil})
+      |> assign(:node_info_modal, %{visible: true, node: node})
+    
+    {:noreply, socket}
+  end
+
+  def handle_event("close_node_info", _, socket) do
+    socket =
+      socket
+      |> assign(:node_info_modal, %{visible: false, node: nil})
+    
+    {:noreply, socket}
+  end
+
+  def handle_event("show_node_creation_menu", %{"x" => x, "y" => y, "svg_x" => svg_x, "svg_y" => svg_y}, socket) do
+    case ModsynthGuiPhx.SynthManager.get_available_node_types() do
+      {:ok, node_types} ->
+        # Convert the node types map to a sorted list for the menu
+        available_types = 
+          Map.keys(node_types)
+          |> Enum.sort()
+          |> Enum.map(fn name ->
+            {params, bus_type} = node_types[name]
+            %{name: name, params: params, bus_type: bus_type}
+          end)
+        
+        socket =
+          socket
+          |> assign(:node_creation_menu, %{
+            visible: true,
+            x: x,
+            y: y,
+            svg_x: svg_x,
+            svg_y: svg_y,
+            available_types: available_types
+          })
+        
+        {:noreply, socket}
+      
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to get available node types: #{reason}")}
+    end
+  end
+
+  def handle_event("hide_node_creation_menu", _, socket) do
+    socket =
+      socket
+      |> assign(:node_creation_menu, %{visible: false, x: 0, y: 0, svg_x: 0, svg_y: 0, available_types: []})
+    
+    {:noreply, socket}
+  end
+
+  def handle_event("create_node", %{"node_type" => node_type}, socket) do
+    # Find the next available node ID
+    next_id = case socket.assigns.nodes do
+      [] -> 1
+      nodes -> (Enum.map(nodes, & &1["id"]) |> Enum.max()) + 1
+    end
+    
+    # Get the SVG coordinates from the node creation menu
+    svg_x = socket.assigns.node_creation_menu.svg_x
+    svg_y = socket.assigns.node_creation_menu.svg_y
+    
+    # Create the new node with default values
+    base_node = %{
+      "id" => next_id,
+      "name" => node_type,
+      "x" => svg_x - 70,  # Center the node on the click position
+      "y" => svg_y - 40,
+      "val" => if(node_type == "const", do: 5.0, else: nil),  # Default value for const nodes
+      "control" => nil
+    }
+    
+    # Add ranges for const nodes
+    new_node = add_const_node_ranges(base_node)
+    
+    # Add enriched node data from available types
+    case ModsynthGuiPhx.SynthManager.get_available_node_types() do
+      {:ok, node_types} ->
+        case Map.get(node_types, node_type) do
+          {params, _bus_type} ->
+            enriched_node = Map.put(new_node, "parameters", params)
+            updated_nodes = [enriched_node | socket.assigns.nodes]
+            
+            socket =
+              socket
+              |> assign(:nodes, updated_nodes)
+              |> assign(:node_creation_menu, %{visible: false, x: 0, y: 0, svg_x: 0, svg_y: 0, available_types: []})
+              |> put_flash(:info, "#{String.upcase(node_type)} node created")
+            
+            {:noreply, socket}
+          
+          nil ->
+            {:noreply, put_flash(socket, :error, "Unknown node type: #{node_type}")}
+        end
+      
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to create node: #{reason}")}
+    end
+  end
+
+  def handle_event("update_const_value", %{"node_id" => node_id, "value" => value}, socket) do
+    node_id = if is_binary(node_id), do: String.to_integer(node_id), else: node_id
+    new_value = cond do
+      is_number(value) -> value
+      is_binary(value) -> 
+        case Float.parse(value) do
+          {val, _} -> val
+          :error -> 0.0
+        end
+      true -> 0.0
+    end
+    
+    updated_nodes = Enum.map(socket.assigns.nodes, fn node ->
+      if node["id"] == node_id and node["name"] == "const" do
+        # Clamp value to min/max range
+        min_val = node["min_val"] || 0.0
+        max_val = node["max_val"] || 10.0
+        clamped_value = max(min_val, min(max_val, new_value))
+        
+        Map.put(node, "val", clamped_value)
+      else
+        node
+      end
+    end)
+    
+    {:noreply, assign(socket, :nodes, updated_nodes)}
+  end
+
   defp create_connection(socket, from_node_id, from_port, to_node_id, to_port) do
     # Validate that nodes exist
     from_node = Enum.find(socket.assigns.nodes, &(&1["id"] == from_node_id))
@@ -277,7 +447,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     # Convert the map of Modsynth.Node structs to the UI format
     # Keep the original UI data but enrich it with parameter information
     Enum.map(original_nodes, fn ui_node ->
-      case Map.get(modsynth_nodes, ui_node["id"]) do
+      enriched_node = case Map.get(modsynth_nodes, ui_node["id"]) do
         nil -> 
           # Fallback to original node if not found in modsynth data
           ui_node
@@ -286,8 +456,30 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           # Enrich UI node with parameter information from Modsynth.Node
           Map.put(ui_node, "parameters", modsynth_node.parameters)
       end
+      
+      # Add min/max ranges for const nodes
+      add_const_node_ranges(enriched_node)
     end)
   end
+
+  defp add_const_node_ranges(%{"name" => "const"} = node) do
+    current_val = node["val"] || 5.0  # Default value if none exists
+    
+    # For existing const nodes: 0 to 2x current value
+    # For new nodes without a value: 0 to 10
+    {min_val, max_val} = if node["val"] do
+      {0.0, current_val * 2.0}
+    else
+      {0.0, 10.0}
+    end
+    
+    node
+    |> Map.put("min_val", min_val)
+    |> Map.put("max_val", max_val)
+    |> Map.put("val", current_val)  # Ensure val is set
+  end
+
+  defp add_const_node_ranges(node), do: node
 
   defp convert_connections_to_port_format(connections, nodes) do
     require Logger
@@ -490,17 +682,6 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
                 Save
               </button>
             </form>
-              
-              <%= if @selected_node do %>
-                <button 
-                  phx-click="delete_node"
-                  phx-value-id={@selected_node}
-                  class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-sm"
-                  onclick="return confirm('Are you sure you want to delete this node and all its connections?')"
-                >
-                  Delete Node
-                </button>
-              <% end %>
           </div>
         </div>
       </div>
@@ -554,6 +735,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
             viewBox={"0 0 #{@canvas_size.width} #{@canvas_size.height}"}
             phx-hook="SynthCanvas"
             phx-click="clear_selection"
+            phx-click-away="hide_context_menu"
           >
             <!-- Grid Pattern -->
             <defs>
@@ -583,6 +765,165 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           </svg>
         </div>
       </div>
+
+      <!-- Context Menu -->
+      <%= if @context_menu.visible do %>
+        <div 
+          class="absolute bg-gray-800 border border-gray-600 rounded-lg shadow-lg z-50 py-2 min-w-40"
+          style={"left: #{@context_menu.x}px; top: #{@context_menu.y}px;"}
+          phx-click-away="hide_context_menu"
+        >
+          <button 
+            phx-click="context_show_info"
+            phx-value-node_id={@context_menu.node_id}
+            class="w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center"
+          >
+            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            Node Info
+          </button>
+          <hr class="border-gray-600 my-1" />
+          <button 
+            phx-click="context_delete_node"
+            phx-value-node_id={@context_menu.node_id}
+            class="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-900 hover:text-red-300 flex items-center"
+            onclick="return confirm('Are you sure you want to delete this node and all its connections?')"
+          >
+            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+            </svg>
+            Delete Node
+          </button>
+        </div>
+      <% end %>
+
+      <!-- Node Creation Menu -->
+      <%= if @node_creation_menu.visible do %>
+        <div 
+          class="absolute bg-gray-800 border border-gray-600 rounded-lg shadow-lg z-50 py-2 max-w-xs max-h-96 overflow-y-auto"
+          style={"left: #{@node_creation_menu.x}px; top: #{@node_creation_menu.y}px;"}
+          phx-click-away="hide_node_creation_menu"
+        >
+          <div class="px-4 py-2 text-xs text-gray-400 border-b border-gray-600">
+            Create New Node
+          </div>
+          <%= for node_type <- @node_creation_menu.available_types do %>
+            <button 
+              phx-click="create_node"
+              phx-value-node_type={node_type.name}
+              class="w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-700 flex items-center justify-between"
+            >
+              <span class="font-mono"><%= node_type.name %></span>
+              <span class="text-xs text-gray-400">
+                <%= case node_type.bus_type do %>
+                  <% :audio -> %>🎵
+                  <% :control -> %>🎛️
+                  <% _ -> %>⚡
+                <% end %>
+              </span>
+            </button>
+          <% end %>
+        </div>
+      <% end %>
+
+      <!-- Node Info Modal -->
+      <%= if @node_info_modal.visible && @node_info_modal.node do %>
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" phx-click="close_node_info">
+          <div class="bg-gray-800 border border-gray-600 rounded-lg shadow-xl max-w-md w-full mx-4" phx-click="phx-click-away">
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between p-4 border-b border-gray-600">
+              <h3 class="text-lg font-semibold text-white">
+                <%= String.upcase(@node_info_modal.node["name"]) %> - Node <%= @node_info_modal.node["id"] %>
+              </h3>
+              <button 
+                phx-click="close_node_info"
+                class="text-gray-400 hover:text-white"
+              >
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+              </button>
+            </div>
+            
+            <!-- Modal Content -->
+            <div class="p-4 space-y-4">
+              <!-- Basic Info -->
+              <div>
+                <h4 class="text-sm font-medium text-gray-300 mb-2">Basic Information</h4>
+                <div class="bg-gray-900 rounded p-3 text-sm">
+                  <div class="grid grid-cols-2 gap-2">
+                    <div><span class="text-gray-400">ID:</span> <%= @node_info_modal.node["id"] %></div>
+                    <div><span class="text-gray-400">Type:</span> <%= @node_info_modal.node["name"] %></div>
+                    <div><span class="text-gray-400">X:</span> <%= @node_info_modal.node["x"] || 0 %></div>
+                    <div><span class="text-gray-400">Y:</span> <%= @node_info_modal.node["y"] || 0 %></div>
+                  </div>
+                  <%= if @node_info_modal.node["val"] do %>
+                    <div class="mt-2"><span class="text-gray-400">Value:</span> <%= @node_info_modal.node["val"] %></div>
+                  <% end %>
+                  <%= if @node_info_modal.node["control"] do %>
+                    <div class="mt-2"><span class="text-gray-400">Control:</span> <%= @node_info_modal.node["control"] %></div>
+                  <% end %>
+                </div>
+              </div>
+
+              <!-- Ports Information -->
+              <div>
+                <h4 class="text-sm font-medium text-gray-300 mb-2">Ports</h4>
+                <div class="bg-gray-900 rounded p-3 text-sm">
+                  <% ports = get_node_ports(@node_info_modal.node) %>
+                  <div class="grid grid-cols-2 gap-4">
+                    <div>
+                      <div class="text-green-400 font-medium mb-1">Inputs</div>
+                      <%= if Enum.empty?(ports.inputs) do %>
+                        <div class="text-gray-500 italic">None</div>
+                      <% else %>
+                        <%= for {input, index} <- Enum.with_index(ports.inputs) do %>
+                          <div class="font-mono text-xs">
+                            <span class="text-gray-400"><%= index %>:</span> <%= input %>
+                          </div>
+                        <% end %>
+                      <% end %>
+                    </div>
+                    <div>
+                      <div class="text-orange-400 font-medium mb-1">Outputs</div>
+                      <%= if Enum.empty?(ports.outputs) do %>
+                        <div class="text-gray-500 italic">None</div>
+                      <% else %>
+                        <%= for {output, index} <- Enum.with_index(ports.outputs) do %>
+                          <div class="font-mono text-xs">
+                            <span class="text-gray-400"><%= index %>:</span> <%= output %>
+                          </div>
+                        <% end %>
+                      <% end %>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Raw Parameters (if available) -->
+              <%= if Map.get(@node_info_modal.node, "parameters") do %>
+                <div>
+                  <h4 class="text-sm font-medium text-gray-300 mb-2">Raw Parameters</h4>
+                  <div class="bg-gray-900 rounded p-3 text-xs font-mono max-h-32 overflow-y-auto">
+                    <%= inspect(@node_info_modal.node["parameters"], pretty: true) %>
+                  </div>
+                </div>
+              <% end %>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="flex justify-end p-4 border-t border-gray-600">
+              <button 
+                phx-click="close_node_info"
+                class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      <% end %>
     </div>
     """
   end
@@ -674,29 +1015,34 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
         ID: <%= @node["id"] %>
       </text>
       
-      <!-- Parameter/Control Display -->
-      <%= if @node["control"] do %>
-        <text 
-          x="70" 
-          y={@node_height - 15} 
-          text-anchor="middle" 
-          dominant-baseline="middle"
-          class="text-xs fill-gray-300"
-        >
-          <%= @node["control"] %>
-        </text>
-      <% end %>
-      
-      <%= if @node["val"] do %>
-        <text 
-          x="70" 
-          y={@node_height - 5} 
-          text-anchor="middle" 
-          dominant-baseline="middle"
-          class="text-xs fill-yellow-400"
-        >
-          <%= @node["val"] %>
-        </text>
+      <!-- Const Node Knob and Value Display -->
+      <%= if @node["name"] == "const" do %>
+        <.const_knob node={@node} />
+      <% else %>
+        <!-- Parameter/Control Display for non-const nodes -->
+        <%= if @node["control"] do %>
+          <text 
+            x="70" 
+            y={@node_height - 15} 
+            text-anchor="middle" 
+            dominant-baseline="middle"
+            class="text-xs fill-gray-300"
+          >
+            <%= @node["control"] %>
+          </text>
+        <% end %>
+        
+        <%= if @node["val"] do %>
+          <text 
+            x="70" 
+            y={@node_height - 5} 
+            text-anchor="middle" 
+            dominant-baseline="middle"
+            class="text-xs fill-yellow-400"
+          >
+            <%= @node["val"] %>
+          </text>
+        <% end %>
       <% end %>
       
       <!-- Input Jacks (Left Side) -->
@@ -866,5 +1212,95 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     else
       ~H""
     end
+  end
+
+  defp const_knob(assigns) do
+    # Calculate knob position and size based on available space
+    assigns = assign(assigns, :knob_center_x, 70)
+    assigns = assign(assigns, :knob_center_y, 55)
+    assigns = assign(assigns, :knob_radius, 12)
+    
+    # Calculate current angle based on value (0-270 degrees for better visual feedback)
+    assigns = assign(assigns, :current_val, assigns.node["val"] || 0.0)
+    assigns = assign(assigns, :min_val, assigns.node["min_val"] || 0.0)
+    assigns = assign(assigns, :max_val, assigns.node["max_val"] || 10.0)
+    
+    # Normalize value to 0-1 range, then map to 0-270 degrees
+    normalized_val = if assigns.max_val > assigns.min_val do
+      (assigns.current_val - assigns.min_val) / (assigns.max_val - assigns.min_val)
+    else
+      0.0
+    end
+    
+    angle_degrees = normalized_val * 270
+    angle_radians = angle_degrees * :math.pi() / 180
+    
+    # Calculate indicator line endpoint
+    assigns = assign(assigns, :indicator_x, assigns.knob_center_x + (assigns.knob_radius - 2) * :math.cos(angle_radians - :math.pi() / 2))
+    assigns = assign(assigns, :indicator_y, assigns.knob_center_y + (assigns.knob_radius - 2) * :math.sin(angle_radians - :math.pi() / 2))
+    
+    ~H"""
+    <!-- Const Node Knob -->
+    <g class="const-knob">
+      <!-- Knob Background Circle -->
+      <circle 
+        cx={@knob_center_x}
+        cy={@knob_center_y}
+        r={@knob_radius}
+        fill="#374151"
+        stroke="#6B7280"
+        stroke-width="1"
+      />
+      
+      <!-- Knob Track (shows full range) -->
+      <circle 
+        cx={@knob_center_x}
+        cy={@knob_center_y}
+        r={@knob_radius - 3}
+        fill="none"
+        stroke="#4B5563"
+        stroke-width="2"
+        stroke-dasharray="2,2"
+        opacity="0.5"
+      />
+      
+      <!-- Value Indicator Line -->
+      <line 
+        x1={@knob_center_x}
+        y1={@knob_center_y}
+        x2={@indicator_x}
+        y2={@indicator_y}
+        stroke="#F59E0B"
+        stroke-width="2"
+        stroke-linecap="round"
+      />
+      
+      <!-- Interactive Area for Dragging -->
+      <circle 
+        id={"const-knob-#{@node["id"]}"}
+        cx={@knob_center_x}
+        cy={@knob_center_y}
+        r={@knob_radius + 5}
+        fill="transparent"
+        phx-hook="ConstKnob"
+        data-node-id={@node["id"]}
+        data-current-val={@current_val}
+        data-min-val={@min_val}
+        data-max-val={@max_val}
+        style="cursor: pointer;"
+      />
+      
+      <!-- Current Value Display -->
+      <text 
+        x={@knob_center_x}
+        y={@knob_center_y + @knob_radius + 15}
+        text-anchor="middle"
+        dominant-baseline="middle"
+        class="text-xs fill-yellow-400"
+      >
+        <%= Float.round(@current_val, 2) %>
+      </text>
+    </g>
+    """
   end
 end

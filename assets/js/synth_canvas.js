@@ -10,8 +10,10 @@ export const SynthCanvas = {
     this.handleMouseDown = this.handleMouseDown.bind(this);
     this.handleMouseMove = this.handleMouseMove.bind(this);
     this.handleMouseUp = this.handleMouseUp.bind(this);
+    this.handleRightClick = this.handleRightClick.bind(this);
     
     this.svg.addEventListener('mousedown', this.handleMouseDown);
+    this.svg.addEventListener('contextmenu', this.handleRightClick);
     document.addEventListener('mousemove', this.handleMouseMove);
     document.addEventListener('mouseup', this.handleMouseUp);
     
@@ -21,6 +23,7 @@ export const SynthCanvas = {
   
   destroyed() {
     this.svg.removeEventListener('mousedown', this.handleMouseDown);
+    this.svg.removeEventListener('contextmenu', this.handleRightClick);
     document.removeEventListener('mousemove', this.handleMouseMove);
     document.removeEventListener('mouseup', this.handleMouseUp);
   },
@@ -110,5 +113,117 @@ export const SynthCanvas = {
     this.isDragging = false;
     this.dragTarget = null;
     this.dragOffset = { x: 0, y: 0 };
+  },
+
+  handleRightClick(e) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Check if we right-clicked on a node
+    const nodeGroup = e.target.closest('g[id^="node-"]');
+    
+    // Get click position relative to the viewport
+    const x = e.clientX;
+    const y = e.clientY;
+
+    if (nodeGroup) {
+      // Right-click on node - show node context menu
+      const nodeId = nodeGroup.id.replace('node-', '');
+      
+      this.pushEvent('show_context_menu', {
+        node_id: parseInt(nodeId),
+        x: x,
+        y: y
+      });
+    } else {
+      // Right-click on background - show node creation menu
+      // Get position relative to SVG for node placement
+      const rect = this.svg.getBoundingClientRect();
+      const svgX = e.clientX - rect.left;
+      const svgY = e.clientY - rect.top;
+      
+      this.pushEvent('show_node_creation_menu', {
+        x: x,  // Viewport position for menu placement
+        y: y,
+        svg_x: svgX,  // SVG position for node creation
+        svg_y: svgY
+      });
+    }
+  }
+};
+
+// ConstKnob Phoenix LiveView Hook for knob value controls
+export const ConstKnob = {
+  mounted() {
+    this.isDragging = false;
+    this.startY = 0;
+    this.startValue = 0;
+    this.nodeId = parseInt(this.el.dataset.nodeId);
+    this.currentVal = parseFloat(this.el.dataset.currentVal);
+    this.minVal = parseFloat(this.el.dataset.minVal);
+    this.maxVal = parseFloat(this.el.dataset.maxVal);
+    
+    // Bind event handlers
+    this.handleMouseDown = this.handleMouseDown.bind(this);
+    this.handleMouseMove = this.handleMouseMove.bind(this);
+    this.handleMouseUp = this.handleMouseUp.bind(this);
+    
+    // Add event listeners
+    this.el.addEventListener('mousedown', this.handleMouseDown);
+    document.addEventListener('mousemove', this.handleMouseMove);
+    document.addEventListener('mouseup', this.handleMouseUp);
+  },
+  
+  destroyed() {
+    this.el.removeEventListener('mousedown', this.handleMouseDown);
+    document.removeEventListener('mousemove', this.handleMouseMove);
+    document.removeEventListener('mouseup', this.handleMouseUp);
+  },
+  
+  handleMouseDown(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    this.isDragging = true;
+    this.startY = e.clientY;
+    this.startValue = this.currentVal;
+    
+    // Visual feedback
+    this.el.style.opacity = '0.8';
+  },
+  
+  handleMouseMove(e) {
+    if (!this.isDragging) return;
+    
+    e.preventDefault();
+    
+    // Calculate value change based on vertical mouse movement
+    // Moving up increases value, moving down decreases
+    const deltaY = this.startY - e.clientY; // Invert so up = positive
+    const sensitivity = (this.maxVal - this.minVal) / 100; // 100 pixels for full range
+    const newValue = this.startValue + (deltaY * sensitivity);
+    
+    // Clamp value to min/max range
+    const clampedValue = Math.max(this.minVal, Math.min(this.maxVal, newValue));
+    
+    // Update current value for real-time feedback
+    this.currentVal = clampedValue;
+    
+    // Send update to LiveView
+    this.pushEvent('update_const_value', {
+      node_id: this.nodeId,
+      value: clampedValue
+    });
+  },
+  
+  handleMouseUp(e) {
+    if (!this.isDragging) return;
+    
+    e.preventDefault();
+    
+    this.isDragging = false;
+    
+    // Remove visual feedback
+    this.el.style.opacity = '1';
   }
 };
