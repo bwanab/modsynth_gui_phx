@@ -24,19 +24,32 @@ defmodule ModsynthGuiPhx.FileManager do
 
   def list_synth_files do
     networks_dir = synth_networks_dir()
-    example_dir = Path.join([Application.app_dir(:sc_em), "..", "examples"])
+    # Use the actual source directory instead of the compiled app directory
+    example_dir = Path.join([__DIR__, "..", "..", "..", "sc_em", "examples"])
+                  |> Path.expand()
+    
+    IO.puts("DEBUG: Looking for user files in: #{networks_dir}")
+    IO.puts("DEBUG: Looking for example files in: #{example_dir}")
+    IO.puts("DEBUG: Example dir exists? #{File.exists?(example_dir)}")
     
     user_files = list_json_files(networks_dir, "User")
     example_files = list_json_files(example_dir, "Examples")
+    
+    IO.puts("DEBUG: Found #{length(user_files)} user files")
+    IO.puts("DEBUG: Found #{length(example_files)} example files")
     
     {user_files, example_files}
   end
 
   defp list_json_files(directory, category) do
+    IO.puts("DEBUG: Listing files in directory: #{directory}")
     case File.ls(directory) do
       {:ok, files} ->
-        files
-        |> Enum.filter(&String.ends_with?(&1, ".json"))
+        IO.puts("DEBUG: Found #{length(files)} total files: #{inspect(files)}")
+        json_files = files |> Enum.filter(&String.ends_with?(&1, ".json"))
+        IO.puts("DEBUG: Found #{length(json_files)} JSON files: #{inspect(json_files)}")
+        
+        json_files
         |> Enum.map(fn file ->
           %{
             name: Path.basename(file, ".json"),
@@ -45,7 +58,9 @@ defmodule ModsynthGuiPhx.FileManager do
           }
         end)
       
-      {:error, _} -> []
+      {:error, reason} -> 
+        IO.puts("DEBUG: Error listing directory #{directory}: #{inspect(reason)}")
+        []
     end
   end
 

@@ -7,10 +7,20 @@ defmodule ModsynthGuiPhx.SynthManager do
   end
 
   def init(_opts) do
+    # Initialize available node types from Modsynth
+    available_node_types = try do
+      Modsynth.init()
+    rescue
+      error ->
+        Logger.error("Failed to initialize Modsynth: #{inspect(error)}")
+        %{}
+    end
+    
     {:ok, %{
       current_synth: nil,
       synth_running: false,
-      available_synthdefs: []
+      available_synthdefs: [],
+      available_node_types: available_node_types
     }}
   end
 
@@ -38,6 +48,10 @@ defmodule ModsynthGuiPhx.SynthManager do
 
   def get_current_synth_data do
     GenServer.call(__MODULE__, :get_current_synth_data)
+  end
+
+  def get_available_node_types do
+    GenServer.call(__MODULE__, :get_available_node_types)
   end
 
   # Server callbacks
@@ -155,6 +169,10 @@ defmodule ModsynthGuiPhx.SynthManager do
 
   def handle_call(:get_current_synth_data, _from, %{current_synth: synth} = state) do
     {:reply, {:ok, synth}, state}
+  end
+
+  def handle_call(:get_available_node_types, _from, state) do
+    {:reply, {:ok, state.available_node_types}, state}
   end
 
 end

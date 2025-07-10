@@ -74,9 +74,12 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
 
   def handle_event("save_file", %{"filename" => filename}, socket) do
     if filename != "" do
+      # Convert port-based connections back to parameter-based format for saving
+      param_connections = convert_connections_to_param_format(socket.assigns.connections, socket.assigns.nodes)
+      
       synth_data = %{
         "nodes" => socket.assigns.nodes,
-        "connections" => socket.assigns.connections,
+        "connections" => param_connections,
         "frame" => socket.assigns.canvas_size,
         "master_vol" => 0.3
       }
@@ -510,6 +513,48 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
         converted = %{
           "from_node" => %{"id" => conn["from_node"]["id"], "port" => from_port_index},
           "to_node" => %{"id" => conn["to_node"]["id"], "port" => to_port_index}
+        }
+        
+        Logger.info("Converted connection: #{inspect(converted)}")
+        converted
+      else
+        Logger.warning("Could not find nodes for connection: #{inspect(conn)}")
+        # Fallback to original format if nodes not found
+        conn
+      end
+    end)
+  end
+
+  defp convert_connections_to_param_format(connections, nodes) do
+    require Logger
+    Logger.info("Converting #{length(connections)} connections to parameter format")
+    
+    Enum.map(connections, fn conn ->
+      Logger.info("Port-based connection: #{inspect(conn)}")
+      
+      # Find the from and to nodes
+      from_node = Enum.find(nodes, &(&1["id"] == conn["from_node"]["id"]))
+      to_node = Enum.find(nodes, &(&1["id"] == conn["to_node"]["id"]))
+      
+      if from_node && to_node do
+        # Get port information for both nodes
+        from_ports = get_node_ports(from_node)
+        to_ports = get_node_ports(to_node)
+        
+        # Get the port indices
+        from_port_index = conn["from_node"]["port"] || 0
+        to_port_index = conn["to_node"]["port"] || 0
+        
+        # Convert port indices back to parameter names
+        from_param = Enum.at(from_ports.outputs, from_port_index) || "out"
+        to_param = Enum.at(to_ports.inputs, to_port_index) || "in"
+        
+        Logger.info("Port mapping: port #{from_port_index} -> #{from_param}, port #{to_port_index} -> #{to_param}")
+        
+        # Convert to parameter-based format
+        converted = %{
+          "from_node" => %{"id" => conn["from_node"]["id"], "param_name" => from_param},
+          "to_node" => %{"id" => conn["to_node"]["id"], "param_name" => to_param}
         }
         
         Logger.info("Converted connection: #{inspect(converted)}")
