@@ -36,6 +36,10 @@ defmodule ModsynthGuiPhx.SynthManager do
     GenServer.call(__MODULE__, :get_synth_status)
   end
 
+  def get_current_synth_data do
+    GenServer.call(__MODULE__, :get_current_synth_data)
+  end
+
   # Server callbacks
 
   def handle_call({:load_synth, synth_data}, _from, state) do
@@ -48,6 +52,10 @@ defmodule ModsynthGuiPhx.SynthManager do
       # Use Modsynth.look to validate and parse the synth
       {nodes, connections, dims} = Modsynth.look(temp_filename)
       File.rm(temp_filename)
+      
+      # Log the structure of the nodes for debugging
+      Logger.info("Nodes structure: #{inspect(nodes)}")
+      Logger.info("Connections structure: #{inspect(connections)}")
       
       new_state = %{state | 
         current_synth: %{
@@ -139,6 +147,14 @@ defmodule ModsynthGuiPhx.SynthManager do
       available_synthdefs: length(state.available_synthdefs)
     }
     {:reply, {:ok, status}, state}
+  end
+
+  def handle_call(:get_current_synth_data, _from, %{current_synth: nil} = state) do
+    {:reply, {:error, "No synth loaded"}, state}
+  end
+
+  def handle_call(:get_current_synth_data, _from, %{current_synth: synth} = state) do
+    {:reply, {:ok, synth}, state}
   end
 
 end

@@ -26,6 +26,12 @@ export const SynthCanvas = {
   },
   
   handleMouseDown(e) {
+    // Check if we clicked on a port (skip dragging for ports)
+    if (e.target.closest('g[phx-click="port_clicked"]') || 
+        e.target.closest('g[phx-click="connection_delete"]')) {
+      return;
+    }
+    
     // Check if we clicked on a node
     const nodeGroup = e.target.closest('g[id^="node-"]');
     if (!nodeGroup) return;
@@ -67,9 +73,10 @@ export const SynthCanvas = {
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
     
-    // Calculate new position (updated for new node size: 140x80)
+    // Calculate new position with dynamic node height (minimum 80px)
+    const nodeHeight = 80; // Default height, dynamic height calculation would need server communication
     const newX = Math.max(0, Math.min(mouseX - this.dragOffset.x, this.svg.viewBox.baseVal.width - 140));
-    const newY = Math.max(0, Math.min(mouseY - this.dragOffset.y, this.svg.viewBox.baseVal.height - 80));
+    const newY = Math.max(0, Math.min(mouseY - this.dragOffset.y, this.svg.viewBox.baseVal.height - nodeHeight));
     
     // Update node position
     this.dragTarget.setAttribute('transform', `translate(${newX}, ${newY})`);
