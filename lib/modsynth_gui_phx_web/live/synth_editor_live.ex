@@ -591,17 +591,15 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
         end) 
         |> Enum.reject(&is_nil/1)
         
-        # Separate inputs and outputs based on common naming patterns
-        # Outputs are typically: out, sig, val, ob1, ob2, freq (when it's from midi/piano inputs)
-        # Inputs are typically: in, freq (when it's to oscillators), gain, cutoff, etc.
+        # Separate inputs and outputs based on naming convention
+        # Outputs use "out_" prefix (out_audio, out_freq, out_val, out_1, out_2, etc.)
+        # Inputs use descriptive names (in, freq, gain, cutoff, etc.)
         output_params = Enum.filter(all_param_names, fn name ->
-          name in ["out", "sig", "val", "ob1", "ob2"] or 
-          (name == "freq" and node["name"] in ["midi-in", "piano-in", "midi-in2"])
+          String.starts_with?(name, "out_")
         end)
         
         input_params = Enum.reject(all_param_names, fn name ->
-          name in ["out", "sig", "val", "ob1", "ob2"] or 
-          (name == "freq" and node["name"] in ["midi-in", "piano-in", "midi-in2"])
+          String.starts_with?(name, "out_")
         end)
         
         # Ensure we have at least one output
@@ -620,53 +618,50 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
   defp get_node_ports_fallback(node_name) do
     case node_name do
       # Oscillators
-      "saw-osc" -> %{inputs: ["freq"], outputs: ["sig"]}
-      "square-osc" -> %{inputs: ["freq", "width"], outputs: ["sig"]}
-      "sine-osc" -> %{inputs: ["freq"], outputs: ["sig"]}
-      "sin-vco" -> %{inputs: ["freq"], outputs: ["out"]}
+      "saw-osc" -> %{inputs: ["freq"], outputs: ["out_audio"]}
+      "square-osc" -> %{inputs: ["freq", "width"], outputs: ["out_audio"]}
+      "s_sin-osc" -> %{inputs: ["freq"], outputs: ["out_audio"]}
+      "sin-vco" -> %{inputs: ["freq"], outputs: ["out_control"]}
       
       # Filters
-      "moog-filt" -> %{inputs: ["in", "cutoff", "lpf_res"], outputs: ["out"]}
-      "bp-filt" -> %{inputs: ["in", "freq", "q"], outputs: ["out"]}
-      "lp-filt" -> %{inputs: ["in", "freq"], outputs: ["out"]}
-      "hp-filt" -> %{inputs: ["in", "freq"], outputs: ["out"]}
+      "moog-filt" -> %{inputs: ["in", "cutoff", "lpf_res"], outputs: ["out_audio"]}
+      "bp-filt" -> %{inputs: ["in", "freq", "q"], outputs: ["out_audio"]}
+      "lp-filt" -> %{inputs: ["in", "cutoff"], outputs: ["out_audio"]}
+      "hp-filt" -> %{inputs: ["in", "cutoff"], outputs: ["out_audio"]}
       
       # Amplifiers
-      "amp" -> %{inputs: ["in", "gain"], outputs: ["out"]}
+      "amp" -> %{inputs: ["in", "gain"], outputs: ["out_audio"]}
       
       # Envelopes
-      "adsr-env" -> %{inputs: ["in", "attack", "decay", "sustain", "release"], outputs: ["out"]}
-      "perc-env" -> %{inputs: ["in", "attack", "decay"], outputs: ["out"]}
-      "release" -> %{inputs: ["in", "release"], outputs: ["out"]}
+      "adsr-env" -> %{inputs: ["in", "attack", "decay", "sustain", "release", "gate"], outputs: ["out_audio"]}
+      "perc-env" -> %{inputs: ["in", "attack", "release", "gate"], outputs: ["out_audio"]}
       
       # Effects
-      "freeverb" -> %{inputs: ["in", "room_size", "dampening", "wet_dry"], outputs: ["out"]}
-      "reverb" -> %{inputs: ["in", "room_size", "dampening"], outputs: ["out"]}
-      "echo" -> %{inputs: ["in", "delay", "feedback"], outputs: ["out"]}
-      "delay" -> %{inputs: ["in", "delay", "feedback"], outputs: ["out"]}
+      "freeverb" -> %{inputs: ["in", "wet_dry", "room_size", "dampening"], outputs: ["out_audio"]}
+      "echo" -> %{inputs: ["in", "delay_time", "decay_time"], outputs: ["out_audio"]}
       
       # Utilities
-      "const" -> %{inputs: [], outputs: ["val"]}
-      "c-splitter" -> %{inputs: ["in"], outputs: ["ob1", "ob2"]}
-      "a-splitter" -> %{inputs: ["in", "lev", "pos"], outputs: ["ob1", "ob2"]}
-      "pct-add" -> %{inputs: ["in", "gain"], outputs: ["out"]}
-      "c-scale" -> %{inputs: ["in", "out_lo", "out_hi"], outputs: ["out"]}
+      "const" -> %{inputs: ["in"], outputs: ["out_val"]}
+      "c-splitter" -> %{inputs: ["in"], outputs: ["out_1", "out_2"]}
+      "a-splitter" -> %{inputs: ["in", "pos", "lev"], outputs: ["out_1", "out_2"]}
+      "pct-add" -> %{inputs: ["in", "gain"], outputs: ["out_control"]}
+      "c-scale" -> %{inputs: ["in", "in_lo", "in_hi", "out_lo", "out_hi"], outputs: ["out_control"]}
+      "mult" -> %{inputs: ["in", "gain"], outputs: ["out_audio"]}
+      "val-add" -> %{inputs: ["in", "val"], outputs: ["out_control"]}
       
       # Input/Output
-      "midi-in" -> %{inputs: [], outputs: ["freq"]}
-      "midi-in2" -> %{inputs: [], outputs: ["freq"]}
-      "piano-in" -> %{inputs: [], outputs: ["freq"]}
+      "midi-in" -> %{inputs: ["note"], outputs: ["out_freq"]}
+      "midi-in-note" -> %{inputs: ["note"], outputs: ["out_note"]}
       "audio-out" -> %{inputs: ["b1", "b2"], outputs: []}
-      "audio-in" -> %{inputs: [], outputs: ["out"]}
-      "cc-in" -> %{inputs: [], outputs: ["val"]}
-      "cc-cont-in" -> %{inputs: [], outputs: ["val"]}
+      "audio-in" -> %{inputs: [], outputs: ["out_audio"]}
+      "cc-in" -> %{inputs: ["in"], outputs: ["out_val"]}
+      "rand-in" -> %{inputs: ["lo", "hi", "trig"], outputs: ["out_val"]}
       
       # Control
-      "slider-ctl" -> %{inputs: [], outputs: ["val"]}
-      "note-freq" -> %{inputs: ["note"], outputs: ["freq"]}
+      "note-freq" -> %{inputs: ["note"], outputs: ["out_freq"]}
       
       # Default fallback
-      _ -> %{inputs: ["in1", "in2"], outputs: ["out1", "out2"]}
+      _ -> %{inputs: ["in"], outputs: ["out_audio"]}
     end
   end
 

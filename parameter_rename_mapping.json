@@ -1,0 +1,240 @@
+{
+  "audio-out": {
+    "old_to_new": {},
+    "inputs": ["b1", "b2"],
+    "outputs": []
+  },
+  "audio-in": {
+    "old_to_new": {
+      "out": "out_audio"
+    },
+    "inputs": [],
+    "outputs": ["out_audio"]
+  },
+  "c-splitter": {
+    "old_to_new": {
+      "ob1": "out_1",
+      "ob2": "out_2"
+    },
+    "inputs": ["in"],
+    "outputs": ["out_1", "out_2"]
+  },
+  "a-splitter": {
+    "old_to_new": {
+      "ob1": "out_1",
+      "ob2": "out_2"
+    },
+    "inputs": ["in", "pos", "lev"],
+    "outputs": ["out_1", "out_2"]
+  },
+  "a-mixer-2": {
+    "old_to_new": {
+      "out": "out_audio"
+    },
+    "inputs": ["in1", "in2"],
+    "outputs": ["out_audio"]
+  },
+  "a-mixer-4": {
+    "old_to_new": {
+      "out": "out_audio"
+    },
+    "inputs": ["in1", "in2", "in3", "in4"],
+    "outputs": ["out_audio"]
+  },
+  "const": {
+    "old_to_new": {
+      "val": "out_val"
+    },
+    "inputs": ["in"],
+    "outputs": ["out_val"]
+  },
+  "midi-in": {
+    "old_to_new": {
+      "freq": "out_freq"
+    },
+    "inputs": ["note"],
+    "outputs": ["out_freq"]
+  },
+  "midi-in2": {
+    "old_to_new": {
+      "freq": "out_freq"
+    },
+    "inputs": ["note"],
+    "outputs": ["out_freq"]
+  },
+  "midi-in-note": {
+    "old_to_new": {
+      "out": "out_note"
+    },
+    "inputs": ["note"],
+    "outputs": ["out_note"]
+  },
+  "cc-in": {
+    "old_to_new": {
+      "val": "out_val"
+    },
+    "inputs": ["in"],
+    "outputs": ["out_val"]
+  },
+  "cc-cont-in": {
+    "old_to_new": {
+      "val": "out_val"
+    },
+    "inputs": ["in"],
+    "outputs": ["out_val"]
+  },
+  "cc-disc-in": {
+    "old_to_new": {
+      "val": "out_val"
+    },
+    "inputs": ["in"],
+    "outputs": ["out_val"]
+  },
+  "note-freq": {
+    "old_to_new": {
+      "freq": "out_freq"
+    },
+    "inputs": ["note"],
+    "outputs": ["out_freq"]
+  },
+  "amp": {
+    "old_to_new": {
+      "out": "out_audio"
+    },
+    "inputs": ["in", "gain"],
+    "outputs": ["out_audio"]
+  },
+  "saw-osc": {
+    "old_to_new": {
+      "sig": "out_audio"
+    },
+    "inputs": ["freq"],
+    "outputs": ["out_audio"]
+  },
+  "s_sin-osc": {
+    "old_to_new": {
+      "sig": "out_audio"
+    },
+    "inputs": ["freq"],
+    "outputs": ["out_audio"]
+  },
+  "sin-vco": {
+    "old_to_new": {
+      "out": "out_control"
+    },
+    "inputs": ["freq"],
+    "outputs": ["out_control"]
+  },
+  "rand-in": {
+    "old_to_new": {
+      "out": "out_val"
+    },
+    "inputs": ["lo", "hi", "trig"],
+    "outputs": ["out_val"]
+  },
+  "rand-pent": {
+    "old_to_new": {
+      "out": "out_val"
+    },
+    "inputs": ["lo", "hi", "trig"],
+    "outputs": ["out_val"]
+  },
+  "slider-ctl": {
+    "old_to_new": {
+      "val": "out_val"
+    },
+    "inputs": ["in"],
+    "outputs": ["out_val"]
+  },
+  "square-osc": {
+    "old_to_new": {
+      "sig": "out_audio"
+    },
+    "inputs": ["freq", "width"],
+    "outputs": ["out_audio"]
+  },
+  "lp-filt": {
+    "old_to_new": {
+      "out": "out_audio"
+    },
+    "inputs": ["in", "cutoff"],
+    "outputs": ["out_audio"]
+  },
+  "hp-filt": {
+    "old_to_new": {
+      "out": "out_audio"
+    },
+    "inputs": ["in", "cutoff"],
+    "outputs": ["out_audio"]
+  },
+  "bp-filt": {
+    "old_to_new": {
+      "out": "out_audio"
+    },
+    "inputs": ["in", "freq", "q"],
+    "outputs": ["out_audio"]
+  },
+  "moog-filt": {
+    "old_to_new": {
+      "out": "out_audio"
+    },
+    "inputs": ["in", "cutoff", "lpf_res"],
+    "outputs": ["out_audio"]
+  },
+  "c-scale": {
+    "old_to_new": {
+      "out": "out_control"
+    },
+    "inputs": ["in", "in_lo", "in_hi", "out_lo", "out_hi"],
+    "outputs": ["out_control"]
+  },
+  "mult": {
+    "old_to_new": {
+      "out": "out_audio"
+    },
+    "inputs": ["in", "gain"],
+    "outputs": ["out_audio"]
+  },
+  "pct-add": {
+    "old_to_new": {
+      "out": "out_control"
+    },
+    "inputs": ["in", "gain"],
+    "outputs": ["out_control"]
+  },
+  "val-add": {
+    "old_to_new": {
+      "out": "out_control"
+    },
+    "inputs": ["in", "val"],
+    "outputs": ["out_control"]
+  },
+  "adsr-env": {
+    "old_to_new": {
+      "out": "out_audio"
+    },
+    "inputs": ["in", "attack", "decay", "sustain", "release", "gate"],
+    "outputs": ["out_audio"]
+  },
+  "perc-env": {
+    "old_to_new": {
+      "out": "out_audio"
+    },
+    "inputs": ["in", "attack", "release", "gate"],
+    "outputs": ["out_audio"]
+  },
+  "freeverb": {
+    "old_to_new": {
+      "out": "out_audio"
+    },
+    "inputs": ["in", "wet_dry", "room_size", "dampening"],
+    "outputs": ["out_audio"]
+  },
+  "echo": {
+    "old_to_new": {
+      "out": "out_audio"
+    },
+    "inputs": ["in", "delay_time", "decay_time"],
+    "outputs": ["out_audio"]
+  }
+}
