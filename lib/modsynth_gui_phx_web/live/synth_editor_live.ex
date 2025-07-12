@@ -77,8 +77,11 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       # Convert port-based connections back to parameter-based format for saving
       param_connections = convert_connections_to_param_format(socket.assigns.connections, socket.assigns.nodes)
       
+      # Convert enriched nodes back to original format for saving
+      original_nodes = convert_enriched_nodes_to_original_format(socket.assigns.nodes)
+      
       synth_data = %{
-        "nodes" => socket.assigns.nodes,
+        "nodes" => original_nodes,
         "connections" => param_connections,
         "frame" => socket.assigns.canvas_size,
         "master_vol" => 0.3
@@ -484,6 +487,14 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
 
   defp add_const_node_ranges(node), do: node
 
+  defp convert_enriched_nodes_to_original_format(enriched_nodes) do
+    # Remove the enriched parameters field added during loading to restore the original format
+    # Keep min_val and max_val as they are used for knob ranges in const widgets
+    Enum.map(enriched_nodes, fn node ->
+      Map.delete(node, "parameters")
+    end)
+  end
+
   defp convert_connections_to_port_format(connections, nodes) do
     require Logger
     Logger.info("Converting #{length(connections)} connections to port format")
@@ -553,8 +564,8 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
         
         # Convert to parameter-based format
         converted = %{
-          "from_node" => %{"id" => conn["from_node"]["id"], "param_name" => from_param},
-          "to_node" => %{"id" => conn["to_node"]["id"], "param_name" => to_param}
+          "from_node" => %{"id" => conn["from_node"]["id"], "name" => from_node["name"], "param_name" => from_param},
+          "to_node" => %{"id" => conn["to_node"]["id"], "name" => to_node["name"], "param_name" => to_param}
         }
         
         Logger.info("Converted connection: #{inspect(converted)}")
