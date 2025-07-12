@@ -14,6 +14,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       |> assign(:user_files, user_files)
       |> assign(:example_files, example_files)
       |> assign(:current_synth, nil)
+      |> assign(:current_filename, nil)
       |> assign(:nodes, [])
       |> assign(:connections, [])
       |> assign(:selected_node, nil)
@@ -42,6 +43,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     {:noreply, assign(socket, :viewport_size, %{width: viewport_width, height: viewport_height})}
   end
 
+
   def handle_event("load_file", %{"path" => path}, socket) do
     case FileManager.load_synth_file(path) do
       {:ok, data} ->
@@ -58,9 +60,13 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
                 raw_connections = data["connections"] || []
                 port_connections = convert_connections_to_port_format(raw_connections, enriched_nodes)
                 
+                # Extract filename from path for display
+                filename = Path.basename(path)
+                
                 socket =
                   socket
                   |> assign(:current_synth, data)
+                  |> assign(:current_filename, filename)
                   |> assign(:nodes, enriched_nodes)
                   |> assign(:connections, port_connections)
                   |> assign(:show_file_browser, false)
@@ -104,6 +110,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           socket =
             socket
             |> assign(:user_files, user_files)
+            |> assign(:current_filename, filename)
             |> assign(:new_filename, "")
             |> put_flash(:info, "File saved successfully")
           
@@ -693,6 +700,14 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       <div class="bg-gray-800 p-2 flex items-center justify-between border-b border-gray-700">
         <div class="flex items-center space-x-4">
           <h1 class="text-xl font-bold">Modular Synthesizer Editor</h1>
+          <%= if @current_filename do %>
+            <div class="flex items-center space-x-2 px-3 py-1 bg-blue-600 rounded-full">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+              </svg>
+              <span class="text-sm font-medium"><%= @current_filename %></span>
+            </div>
+          <% end %>
           <%= if @connection_mode.active do %>
             <div class="flex items-center space-x-2 px-3 py-1 bg-orange-600 rounded-full">
               <div class="w-2 h-2 bg-white rounded-full animate-pulse"></div>

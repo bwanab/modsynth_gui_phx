@@ -1,3 +1,18 @@
+// AutoDismissFlash Phoenix LiveView Hook
+export const AutoDismissFlash = {
+  mounted() {
+    // Auto-dismiss flash messages after 2 seconds
+    setTimeout(() => {
+      this.el.style.transition = 'opacity 0.3s ease-out';
+      this.el.style.opacity = '0';
+      setTimeout(() => {
+        // Trigger the existing Phoenix flash clearing mechanism
+        this.el.click();
+      }, 300); // Wait for fade out animation
+    }, 2000);
+  }
+};
+
 // ViewportResize Phoenix LiveView Hook
 export const ViewportResize = {
   mounted() {
