@@ -27,6 +27,9 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       |> assign(:context_menu, %{visible: false, x: 0, y: 0, node_id: nil})
       |> assign(:node_info_modal, %{visible: false, node: nil})
       |> assign(:node_creation_menu, %{visible: false, x: 0, y: 0, svg_x: 0, svg_y: 0, available_types: []})
+      |> assign(:play_menu, %{visible: false, midi_ports: [], port_map: %{}, selected_port: nil})
+      |> assign(:midi_file_path, "")
+      |> assign(:midi_file_suggestions, [])
 
     {:ok, socket}
   end
@@ -155,13 +158,87 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     {:noreply, socket}
   end
 
-  def handle_event("play_synth", _, socket) do
-    case ModsynthGuiPhx.SynthManager.play_synth() do
-      {:ok, message} ->
-        {:noreply, put_flash(socket, :info, message)}
+  def handle_event("show_play_menu", _, socket) do
+    # Load MIDI ports when showing the play menu
+    case ModsynthGuiPhx.SynthManager.get_midi_ports() do
+      {:ok, {midi_ports, port_map}} ->
+        play_menu = %{
+          visible: true,
+          midi_ports: midi_ports,
+          port_map: port_map,
+          selected_port: if(length(midi_ports) > 0, do: List.first(midi_ports) |> elem(1), else: nil)
+        }
+        {:noreply, assign(socket, :play_menu, play_menu)}
       
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, reason)}
+        {:noreply, put_flash(socket, :error, "Failed to get MIDI ports: #{reason}")}
+    end
+  end
+
+  def handle_event("hide_play_menu", _, socket) do
+    play_menu = %{socket.assigns.play_menu | visible: false}
+    {:noreply, assign(socket, :play_menu, play_menu)}
+  end
+
+  def handle_event("select_midi_port", %{"port" => port}, socket) do
+    play_menu = %{socket.assigns.play_menu | selected_port: String.to_atom(port)}
+    {:noreply, assign(socket, :play_menu, play_menu)}
+  end
+
+  def handle_event("play_with_device", _, socket) do
+    selected_port = socket.assigns.play_menu.selected_port
+    port_map = socket.assigns.play_menu.port_map
+    
+    case Map.get(port_map, selected_port) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "No MIDI device selected")}
+      
+      %{name: device_name} ->
+        case ModsynthGuiPhx.SynthManager.play_synth_with_device(device_name) do
+          {:ok, message} ->
+            socket = socket
+            |> put_flash(:info, message)
+            |> assign(:play_menu, %{socket.assigns.play_menu | visible: false})
+            {:noreply, socket}
+          
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, reason)}
+        end
+    end
+  end
+
+  def handle_event("update_midi_file_path", %{"path" => path}, socket) do
+    suggestions = get_path_suggestions(path)
+    socket = socket
+    |> assign(:midi_file_path, path)
+    |> assign(:midi_file_suggestions, suggestions)
+    {:noreply, socket}
+  end
+
+  def handle_event("select_midi_file_suggestion", %{"path" => path}, socket) do
+    suggestions = get_path_suggestions(path)
+    socket = socket
+    |> assign(:midi_file_path, path)
+    |> assign(:midi_file_suggestions, suggestions)
+    {:noreply, socket}
+  end
+
+  def handle_event("play_with_midi_file", _, socket) do
+    midi_file_path = socket.assigns.midi_file_path
+    
+    if String.trim(midi_file_path) == "" do
+      {:noreply, put_flash(socket, :error, "Please enter a MIDI file path")}
+    else
+      case ModsynthGuiPhx.SynthManager.play_midi_file(midi_file_path) do
+        {:ok, message} ->
+          socket = socket
+          |> put_flash(:info, message)
+          |> assign(:play_menu, %{socket.assigns.play_menu | visible: false})
+          {:noreply, socket}
+        
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, reason)}
+      end
     end
   end
 
@@ -731,13 +808,104 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           </div>
           
           <div class="flex items-center space-x-2">
-            <button 
-              phx-click="play_synth"
-              class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-sm"
-              disabled={@current_synth == nil}
-            >
-              Play
-            </button>
+            <div class="relative">
+              <button 
+                phx-click="show_play_menu"
+                class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-sm flex items-center space-x-1"
+                disabled={@current_synth == nil}
+              >
+                <span>Play</span>
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+              </button>
+              
+              <%= if @play_menu.visible do %>
+                <div class="absolute left-0 mt-1 w-80 bg-white rounded-md shadow-lg z-50 border border-gray-200">
+                  <div class="p-4 space-y-4">
+                    <div class="flex justify-between items-center">
+                      <h3 class="text-lg font-semibold text-gray-800">Play Options</h3>
+                      <button phx-click="hide_play_menu" class="text-gray-500 hover:text-gray-700">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                      </button>
+                    </div>
+                    
+                    <div class="space-y-3">
+                      <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Play with Device</label>
+                        <div class="flex space-x-2">
+                          <select 
+                            phx-change="select_midi_port"
+                            name="port"
+                            class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <%= for {name, key} <- @play_menu.midi_ports do %>
+                              <option value={key} selected={key == @play_menu.selected_port}><%= name %></option>
+                            <% end %>
+                          </select>
+                          <button 
+                            phx-click="play_with_device"
+                            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm"
+                          >
+                            Play
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Play MIDI File</label>
+                        <div class="flex space-x-2 relative">
+                          <div class="flex-1 relative">
+                            <input 
+                              type="text"
+                              placeholder="Enter MIDI file path..."
+                              value={@midi_file_path}
+                              phx-change="update_midi_file_path"
+                              name="path"
+                              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <%= if length(@midi_file_suggestions) > 0 do %>
+                              <div class="absolute top-full left-0 right-0 bg-white border border-gray-300 rounded-md shadow-lg mt-1 max-h-40 overflow-y-auto z-10">
+                                <%= for suggestion <- @midi_file_suggestions do %>
+                                  <div 
+                                    phx-click="select_midi_file_suggestion"
+                                    phx-value-path={suggestion.path}
+                                    class="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center"
+                                  >
+                                    <%= if suggestion.is_directory do %>
+                                      <svg class="w-4 h-4 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-5l-2-2H5a2 2 0 00-2 2z"></path>
+                                      </svg>
+                                    <% else %>
+                                      <svg class="w-4 h-4 mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-.895 2-2 2s-2-.895-2-2 .895-2 2-2 2 .895 2 2zm12-3c0 1.105-.895 2-2 2s-2-.895-2-2 .895-2 2-2 2 .895 2 2z"></path>
+                                      </svg>
+                                    <% end %>
+                                    <span class="text-sm"><%= suggestion.display_name %></span>
+                                  </div>
+                                <% end %>
+                              </div>
+                            <% end %>
+                          </div>
+                          <button 
+                            phx-click="play_with_midi_file"
+                            class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-md text-sm"
+                          >
+                            Play
+                          </button>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">
+                          Tip: Type to see available MIDI files and folders. Use ".." to go up a directory.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              <% end %>
+            </div>
+            
             <button 
               phx-click="stop_synth"
               class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-sm"
@@ -1401,5 +1569,79 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       </text>
     </g>
     """
+  end
+
+  # Private helper functions
+
+  defp get_path_suggestions(path) do
+    case String.trim(path) do
+      "" ->
+        # Show current directory contents
+        list_directory_contents(".")
+      
+      path ->
+        # Determine if this is a directory path or file path
+        if String.ends_with?(path, "/") do
+          # Directory path - show contents of this directory
+          list_directory_contents(path)
+        else
+          # File path - show completions based on the parent directory
+          case Path.split(path) do
+            [filename] ->
+              # Just a filename, search in current directory
+              list_directory_contents(".")
+              |> Enum.filter(fn item -> String.starts_with?(item.name, filename) end)
+            
+            path_parts ->
+              # Has directory components
+              parent_dir = Path.join(Enum.slice(path_parts, 0..-2//1))
+              filename = List.last(path_parts)
+              
+              list_directory_contents(parent_dir)
+              |> Enum.filter(fn item -> String.starts_with?(item.name, filename) end)
+          end
+        end
+    end
+  end
+
+  defp list_directory_contents(dir_path) do
+    case File.ls(dir_path) do
+      {:ok, files} ->
+        files
+        |> Enum.map(fn file ->
+          full_path = Path.join(dir_path, file)
+          case File.stat(full_path) do
+            {:ok, stat} ->
+              is_dir = stat.type == :directory
+              is_midi = String.ends_with?(String.downcase(file), [".mid", ".midi"])
+              
+              %{
+                name: file,
+                path: full_path,
+                is_directory: is_dir,
+                is_midi: is_midi,
+                display_name: if(is_dir, do: "#{file}/", else: file)
+              }
+            
+            {:error, _} ->
+              %{
+                name: file,
+                path: full_path,
+                is_directory: false,
+                is_midi: false,
+                display_name: file
+              }
+          end
+        end)
+        |> Enum.filter(fn item -> 
+          # Show directories and MIDI files
+          item.is_directory || item.is_midi
+        end)
+        |> Enum.sort_by(fn item -> {!item.is_directory, item.name} end)
+        |> Enum.take(10)  # Limit to 10 suggestions
+      
+      {:error, _} ->
+        []
+    end
   end
 end
