@@ -1,3 +1,24 @@
+// ViewportResize Phoenix LiveView Hook
+export const ViewportResize = {
+  mounted() {
+    this.handleResize = this.handleResize.bind(this);
+    window.addEventListener('resize', this.handleResize);
+    // Send initial size
+    this.handleResize();
+  },
+  
+  destroyed() {
+    window.removeEventListener('resize', this.handleResize);
+  },
+  
+  handleResize() {
+    this.pushEvent('viewport_resize', {
+      width: window.innerWidth,
+      height: window.innerHeight
+    });
+  }
+};
+
 // SynthCanvas Phoenix LiveView Hook
 export const SynthCanvas = {
   mounted() {
@@ -11,11 +32,13 @@ export const SynthCanvas = {
     this.handleMouseMove = this.handleMouseMove.bind(this);
     this.handleMouseUp = this.handleMouseUp.bind(this);
     this.handleRightClick = this.handleRightClick.bind(this);
+    this.handleKeyDown = this.handleKeyDown.bind(this);
     
     this.svg.addEventListener('mousedown', this.handleMouseDown);
     this.svg.addEventListener('contextmenu', this.handleRightClick);
     document.addEventListener('mousemove', this.handleMouseMove);
     document.addEventListener('mouseup', this.handleMouseUp);
+    document.addEventListener('keydown', this.handleKeyDown);
     
     // Prevent default drag behavior on SVG elements
     this.svg.addEventListener('dragstart', (e) => e.preventDefault());
@@ -26,6 +49,7 @@ export const SynthCanvas = {
     this.svg.removeEventListener('contextmenu', this.handleRightClick);
     document.removeEventListener('mousemove', this.handleMouseMove);
     document.removeEventListener('mouseup', this.handleMouseUp);
+    document.removeEventListener('keydown', this.handleKeyDown);
   },
   
   handleMouseDown(e) {
@@ -78,7 +102,8 @@ export const SynthCanvas = {
     
     // Calculate new position with dynamic node height (minimum 80px)
     const nodeHeight = 80; // Default height, dynamic height calculation would need server communication
-    const newX = Math.max(0, Math.min(mouseX - this.dragOffset.x, this.svg.viewBox.baseVal.width - 140));
+    const nodeWidth = 140; // Default node width
+    const newX = Math.max(0, Math.min(mouseX - this.dragOffset.x, this.svg.viewBox.baseVal.width - nodeWidth));
     const newY = Math.max(0, Math.min(mouseY - this.dragOffset.y, this.svg.viewBox.baseVal.height - nodeHeight));
     
     // Update node position
@@ -148,6 +173,40 @@ export const SynthCanvas = {
         svg_x: svgX,  // SVG position for node creation
         svg_y: svgY
       });
+    }
+  },
+
+  handleKeyDown(e) {
+    // Enable keyboard shortcuts for better navigation
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+      return; // Don't interfere with input fields
+    }
+    
+    const container = document.getElementById('canvas-container');
+    if (!container) return;
+    
+    switch(e.key) {
+      case 'ArrowUp':
+        e.preventDefault();
+        container.scrollTop = Math.max(0, container.scrollTop - 50);
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        container.scrollTop = Math.min(container.scrollHeight - container.clientHeight, container.scrollTop + 50);
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        container.scrollLeft = Math.max(0, container.scrollLeft - 50);
+        break;
+      case 'ArrowRight':
+        e.preventDefault();
+        container.scrollLeft = Math.min(container.scrollWidth - container.clientWidth, container.scrollLeft + 50);
+        break;
+      case 'Home':
+        e.preventDefault();
+        container.scrollTop = 0;
+        container.scrollLeft = 0;
+        break;
     }
   }
 };

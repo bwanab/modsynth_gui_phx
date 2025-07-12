@@ -2,6 +2,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
   use ModsynthGuiPhxWeb, :live_view
   alias ModsynthGuiPhx.FileManager
 
+  @impl true
   def mount(_params, _session, socket) do
     {user_files, example_files} = FileManager.list_synth_files()
     
@@ -16,7 +17,8 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       |> assign(:nodes, [])
       |> assign(:connections, [])
       |> assign(:selected_node, nil)
-      |> assign(:canvas_size, %{width: 1200, height: 800})
+      |> assign(:canvas_size, %{width: 2400, height: 1600})
+      |> assign(:viewport_size, %{width: 1200, height: 800})
       |> assign(:show_file_browser, false)
       |> assign(:new_filename, "")
       |> assign(:warnings, [])
@@ -30,6 +32,14 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
 
   def handle_event("toggle_file_browser", _, socket) do
     {:noreply, assign(socket, :show_file_browser, !socket.assigns.show_file_browser)}
+  end
+
+  def handle_event("viewport_resize", %{"width" => width, "height" => height}, socket) do
+    # Update viewport size based on window size, accounting for header and margins
+    viewport_width = max(800, width - 40)  # Minimum width with padding
+    viewport_height = max(600, height - 120)  # Minimum height accounting for header
+    
+    {:noreply, assign(socket, :viewport_size, %{width: viewport_width, height: viewport_height})}
   end
 
   def handle_event("load_file", %{"path" => path}, socket) do
@@ -678,9 +688,9 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
 
   def render(assigns) do
     ~H"""
-    <div class="h-screen bg-gray-900 text-white overflow-hidden">
+    <div id="main-container" class="h-screen bg-gray-900 text-white overflow-hidden" phx-hook="ViewportResize">
       <!-- Header -->
-      <div class="bg-gray-800 p-4 flex items-center justify-between border-b border-gray-700">
+      <div class="bg-gray-800 p-2 flex items-center justify-between border-b border-gray-700">
         <div class="flex items-center space-x-4">
           <h1 class="text-xl font-bold">Modular Synthesizer Editor</h1>
           <%= if @connection_mode.active do %>
@@ -698,6 +708,12 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           >
             <%= if @show_file_browser, do: "Hide Files", else: "Load File" %>
           </button>
+          
+          <div class="text-xs text-gray-400">
+            Canvas: <%= @canvas_size.width %>×<%= @canvas_size.height %> | 
+            Nodes: <%= length(@nodes) %> | 
+            Connections: <%= length(@connections) %>
+          </div>
           
           <div class="flex items-center space-x-2">
             <button 
@@ -738,7 +754,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       </div>
 
       <!-- Main Content -->
-      <div class="flex h-full">
+      <div class="flex" style={"height: calc(100vh - 60px)"}>
         <!-- File Browser Sidebar -->
         <div class={["transition-all duration-300 bg-gray-800 overflow-hidden", if(@show_file_browser, do: "w-64", else: "w-0")]}>
           <div class="p-4 h-full overflow-y-auto">
@@ -779,10 +795,12 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
         </div>
 
         <!-- Canvas Area -->
-        <div class="flex-1 relative">
+        <div class="flex-1 relative overflow-auto" id="canvas-container">
           <svg 
             id="synth-canvas"
-            class="w-full h-full bg-gray-900"
+            class="bg-gray-900"
+            width={@canvas_size.width}
+            height={@canvas_size.height}
             viewBox={"0 0 #{@canvas_size.width} #{@canvas_size.height}"}
             phx-hook="SynthCanvas"
             phx-click="clear_selection"
