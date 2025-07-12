@@ -20,7 +20,8 @@ defmodule ModsynthGuiPhx.SynthManager do
       current_synth: nil,
       synth_running: false,
       available_synthdefs: [],
-      available_node_types: available_node_types
+      available_node_types: available_node_types,
+      virtual_conn: nil
     }}
   end
 
@@ -189,11 +190,18 @@ defmodule ModsynthGuiPhx.SynthManager do
 
   def handle_call(:get_midi_ports, _from, state) do
     try do
-      # Create virtual output port
-      virtual_conn = Midiex.create_virtual_output("virtual")
+      # Create virtual output port only if it doesn't exist
+      virtual_conn = case state.virtual_conn do
+        nil -> 
+          Logger.info("Creating new virtual MIDI connection")
+          Midiex.create_virtual_output("virtual")
+        existing_conn -> 
+          Logger.info("Reusing existing virtual MIDI connection")
+          existing_conn
+      end
 
       # Get all available MIDI ports and filter for input devices, excluding virtual
-      ports = Midiex.ports() 
+      ports = Midiex.ports()
       |> Enum.filter(fn p -> p.direction == :input end)
       |> Enum.reject(fn p -> p.name == "virtual" end)
 
@@ -202,11 +210,14 @@ defmodule ModsynthGuiPhx.SynthManager do
 
       # Create port map: %{atom_key => port_struct}
       port_map = Enum.map(ports, fn p -> {String.to_atom(p.name), p} end) |> Map.new()
-      
+
       # Keep virtual device in port map for MIDI file playback but don't include in dropdown
       port_map_with_virtual = Map.put(port_map, :virtual, %{name: "virtual", connection: virtual_conn})
 
-      {:reply, {:ok, {formatted_ports, port_map_with_virtual}}, state}
+      # Update state with the virtual connection
+      new_state = %{state | virtual_conn: virtual_conn}
+
+      {:reply, {:ok, {formatted_ports, port_map_with_virtual}}, new_state}
     catch
       error ->
         Logger.error("Error getting MIDI ports: #{inspect(error)}")
@@ -243,7 +254,7 @@ defmodule ModsynthGuiPhx.SynthManager do
     {:reply, {:error, "No synth loaded"}, state}
   end
 
-  def handle_call({:play_midi_file, midi_file_path}, _from, %{current_synth: synth} = state) do
+  def handle_call({:play_midi_file, midi_file_path}, _from, %{current_synth: synth, virtual_conn: virtual_conn} = state) do
     try do
       # Save synth data to a temporary file for playing
       temp_filename = "/tmp/temp_synth_play_#{:rand.uniform(1000)}.json"
@@ -256,7 +267,8 @@ defmodule ModsynthGuiPhx.SynthManager do
       # TODO: Add MIDI file playback functionality
       # This would need to be implemented based on the MidiPlayer module
       # from the reference implementation
-
+      Logger.debug("#{IO.inspect(virtual_conn)}")
+      MidiPlayer.play(midi_file_path, synth: virtual_conn)
       File.rm(temp_filename)
       new_state = %{state | synth_running: true}
       {:reply, {:ok, "Synth started with MIDI file: #{midi_file_path}"}, new_state}
