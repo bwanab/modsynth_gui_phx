@@ -225,9 +225,21 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
   end
 
   def handle_event("select_midi_file_suggestion", %{"path" => path}, socket) do
-    suggestions = get_path_suggestions(path)
+    # Check if the selected item is a directory by looking at the current suggestions
+    current_suggestions = socket.assigns.midi_file_suggestions || []
+    selected_suggestion = Enum.find(current_suggestions, fn s -> s.path == path end)
+    
+    # If it's a directory, append "/" and show directory contents
+    # If it's a file, just set the path
+    final_path = if selected_suggestion && selected_suggestion.is_directory do
+      if String.ends_with?(path, "/"), do: path, else: "#{path}/"
+    else
+      path
+    end
+    
+    suggestions = get_path_suggestions(final_path)
     socket = socket
-    |> assign(:midi_file_path, path)
+    |> assign(:midi_file_path, final_path)
     |> assign(:midi_file_suggestions, suggestions)
     {:noreply, socket}
   end
