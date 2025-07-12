@@ -192,10 +192,10 @@ defmodule ModsynthGuiPhx.SynthManager do
     try do
       # Create virtual output port only if it doesn't exist
       virtual_conn = case state.virtual_conn do
-        nil -> 
+        nil ->
           Logger.info("Creating new virtual MIDI connection")
           Midiex.create_virtual_output("virtual")
-        existing_conn -> 
+        existing_conn ->
           Logger.info("Reusing existing virtual MIDI connection")
           existing_conn
       end
@@ -264,11 +264,8 @@ defmodule ModsynthGuiPhx.SynthManager do
       # Use Modsynth.play with virtual device
       _result = Modsynth.play(temp_filename, "virtual")
 
-      # TODO: Add MIDI file playback functionality
-      # This would need to be implemented based on the MidiPlayer module
-      # from the reference implementation
-      Logger.debug("#{IO.inspect(virtual_conn)}")
-      MidiPlayer.play(midi_file_path, synth: virtual_conn)
+      pid = MidiPlayer.play(midi_file_path, synth: virtual_conn)
+      MidiPlayer.notify_when_play_done(pid)
       File.rm(temp_filename)
       new_state = %{state | synth_running: true}
       {:reply, {:ok, "Synth started with MIDI file: #{midi_file_path}"}, new_state}
@@ -277,6 +274,11 @@ defmodule ModsynthGuiPhx.SynthManager do
         Logger.error("Error playing MIDI file #{midi_file_path}: #{inspect(error)}")
         {:reply, {:error, "Error playing MIDI file: #{inspect(error)}"}, state}
     end
+  end
+
+  def handle_info(:midi_play_done, state) do
+    ScClient.group_free(1)
+    {:noreply, state}
   end
 
 end
