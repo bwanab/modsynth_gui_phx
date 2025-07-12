@@ -1690,7 +1690,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           item.is_directory || item.is_midi
         end)
         |> Enum.sort_by(fn item -> {!item.is_directory, item.name} end)
-        |> Enum.take(10)  # Limit to 10 suggestions
+        |> Enum.take(50)  # Limit to 50 suggestions to show more MIDI files
       
       {:error, _} ->
         []
