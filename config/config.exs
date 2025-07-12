@@ -15,7 +15,8 @@ config :sc_em,
   local_synth_dir: System.fetch_env!("MODSYNTH_LOCAL_DIR")
 
 config :modsynth_gui_phx,
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: :utc_datetime],
+  midi_directories: System.get_env("MODSYNTH_MIDI_DIRS", "../sc_em/midi;deps/midifile/test")
 
 # Configures the endpoint
 config :modsynth_gui_phx, ModsynthGuiPhxWeb.Endpoint,

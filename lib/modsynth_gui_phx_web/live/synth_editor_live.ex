@@ -1594,15 +1594,28 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
 
   # Private helper functions
 
+  defp get_configured_midi_directories do
+    # Get the semicolon-delimited list from configuration and split it
+    midi_dirs_string = Application.get_env(:modsynth_gui_phx, :midi_directories, "../sc_em/midi;deps/midifile/test")
+    
+    midi_dirs_string
+    |> String.split(";")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
   defp get_path_suggestions(path) do
     case String.trim(path) do
       "" ->
-        # Show helpful starting directories when path is empty
-        [
-          %{name: ".", path: ".", is_directory: true, is_midi: false, display_name: "./"},
-          %{name: "../sc_em/midi", path: "../sc_em/midi", is_directory: true, is_midi: false, display_name: "../sc_em/midi/"},
-          %{name: "deps/midifile/test", path: "deps/midifile/test", is_directory: true, is_midi: false, display_name: "deps/midifile/test/"}
-        ] ++ list_directory_contents(".")
+        # Show helpful starting directories from configuration when path is empty
+        configured_dirs = get_configured_midi_directories()
+        |> Enum.map(fn dir ->
+          %{name: dir, path: dir, is_directory: true, is_midi: false, display_name: "#{dir}/"}
+        end)
+        
+        current_dir = [%{name: ".", path: ".", is_directory: true, is_midi: false, display_name: "./"}]
+        
+        current_dir ++ configured_dirs ++ list_directory_contents(".")
       
       path ->
         # Determine if this is a directory path or file path
@@ -1613,18 +1626,21 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           # File path - show completions based on the parent directory
           case Path.split(path) do
             [filename] ->
-              # Just a filename, search in current directory and common MIDI directories
+              # Just a filename, search in current directory and configured MIDI directories
               current_dir_matches = list_directory_contents(".")
               |> Enum.filter(fn item -> String.starts_with?(item.name, filename) end)
               
-              # Also check common MIDI directories
-              midi_dir_matches = if File.exists?("../sc_em/midi") do
-                list_directory_contents("../sc_em/midi")
-                |> Enum.filter(fn item -> String.starts_with?(item.name, filename) end)
-                |> Enum.map(fn item -> %{item | path: Path.join("../sc_em/midi", item.name)} end)
-              else
-                []
-              end
+              # Also check configured MIDI directories
+              configured_midi_dirs = get_configured_midi_directories()
+              midi_dir_matches = Enum.flat_map(configured_midi_dirs, fn midi_dir ->
+                if File.exists?(midi_dir) do
+                  list_directory_contents(midi_dir)
+                  |> Enum.filter(fn item -> String.starts_with?(item.name, filename) end)
+                  |> Enum.map(fn item -> %{item | path: Path.join(midi_dir, item.name)} end)
+                else
+                  []
+                end
+              end)
               
               current_dir_matches ++ midi_dir_matches
             
