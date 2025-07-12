@@ -168,7 +168,16 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           port_map: port_map,
           selected_port: if(length(midi_ports) > 0, do: List.first(midi_ports) |> elem(1), else: nil)
         }
-        {:noreply, assign(socket, :play_menu, play_menu)}
+        
+        # Initialize MIDI file path and suggestions when showing the menu
+        initial_suggestions = get_path_suggestions("")
+        
+        socket = socket
+        |> assign(:play_menu, play_menu)
+        |> assign(:midi_file_path, "")
+        |> assign(:midi_file_suggestions, initial_suggestions)
+        
+        {:noreply, socket}
       
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Failed to get MIDI ports: #{reason}")}
