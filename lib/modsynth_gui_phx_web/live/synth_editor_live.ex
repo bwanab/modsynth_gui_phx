@@ -892,7 +892,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-.895 2-2 2s-2-.895-2-2 .895-2 2-2 2 .895 2 2zm12-3c0 1.105-.895 2-2 2s-2-.895-2-2 .895-2 2-2 2 .895 2 2z"></path>
                                       </svg>
                                     <% end %>
-                                    <span class="text-sm"><%= suggestion.display_name %></span>
+                                    <span class="text-sm text-gray-800"><%= suggestion.display_name %></span>
                                   </div>
                                 <% end %>
                               </div>
