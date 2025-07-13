@@ -70,16 +70,10 @@ defmodule ModsynthGuiPhx.SynthManager do
 
   # Server callbacks
 
-  def handle_call({:load_synth, synth_data}, _from, state) do
+  def handle_call({:load_synth, synth_data}, _from, %{available_node_types: synths} = state) do
     try do
-      # Save the synth data temporarily to load it
-      temp_filename = "/tmp/temp_synth_#{:rand.uniform(1000)}.json"
-      json_data = Jason.encode!(synth_data)
-      File.write!(temp_filename, json_data)
 
-      # Use Modsynth.look to validate and parse the synth
-      {nodes, connections, dims} = Modsynth.look(temp_filename)
-      File.rm(temp_filename)
+      {nodes, connections, dims} = Modsynth.specs_to_data(synths, synth_data)
 
       # Log the structure of the nodes for debugging
       Logger.info("Nodes structure: #{inspect(nodes)}")
@@ -87,7 +81,7 @@ defmodule ModsynthGuiPhx.SynthManager do
 
       new_state = %{state |
         current_synth: %{
-          filename: temp_filename,
+          filename: "", # temp_filename,
           nodes: nodes,
           connections: connections,
           dims: dims,
@@ -100,30 +94,6 @@ defmodule ModsynthGuiPhx.SynthManager do
       error ->
         Logger.error("Error loading synth: #{inspect(error)}")
         {:reply, {:error, "Error loading synth: #{inspect(error)}"}, state}
-    end
-  end
-
-  def handle_call(:play_synth, _from, %{current_synth: nil} = state) do
-    {:reply, {:error, "No synth loaded"}, state}
-  end
-
-  def handle_call(:play_synth, _from, %{current_synth: synth} = state) do
-    try do
-      # Save synth data to a temporary file for playing
-      temp_filename = "/tmp/temp_synth_play_#{:rand.uniform(1000)}.json"
-      json_data = Jason.encode!(synth.data)
-      File.write!(temp_filename, json_data)
-
-      # Use Modsynth.play with default device "AE-30"
-      _result = Modsynth.play(temp_filename, "AE-30")
-
-      File.rm(temp_filename)
-      new_state = %{state | synth_running: true}
-      {:reply, {:ok, "Synth started"}, new_state}
-    catch
-      error ->
-        Logger.error("Error playing synth: #{inspect(error)}")
-        {:reply, {:error, "Error playing synth: #{inspect(error)}"}, state}
     end
   end
 
@@ -233,18 +203,12 @@ defmodule ModsynthGuiPhx.SynthManager do
     {:reply, {:error, "No synth loaded"}, state}
   end
 
-  def handle_call({:play_synth_with_device, device_name}, _from, %{current_synth: synth} = state) do
+  def handle_call({:play_synth_with_device, device_name}, _from, %{current_synth: synth,
+                                                                   available_node_types: synths} = state) do
     try do
-      # Save synth data to a temporary file for playing
-      temp_filename = "/tmp/temp_synth_play_#{:rand.uniform(1000)}.json"
-      json_data = Jason.encode!(synth.data)
-      File.write!(temp_filename, json_data)
+      Modsynth.specs_to_data(synths, synth.data)
+      |> Modsynth.play("virtual")
 
-      # Use Modsynth.play with specified device
-      Logger.debug("##############################################playing #{device_name}")
-      _result = Modsynth.play(temp_filename, device_name)
-
-      File.rm(temp_filename)
       new_state = %{state | synth_running: true}
       {:reply, {:ok, "Synth started with device: #{device_name}"}, new_state}
     catch
@@ -258,19 +222,16 @@ defmodule ModsynthGuiPhx.SynthManager do
     {:reply, {:error, "No synth loaded"}, state}
   end
 
-  def handle_call({:play_midi_file, midi_file_path}, _from, %{current_synth: synth, virtual_conn: virtual_conn} = state) do
+  def handle_call({:play_midi_file, midi_file_path}, _from, %{current_synth: synth,
+                                                              virtual_conn: virtual_conn,
+                                                              available_node_types: synths} = state) do
     try do
-      # Save synth data to a temporary file for playing
-      temp_filename = "/tmp/temp_synth_play_#{:rand.uniform(1000)}.json"
-      json_data = Jason.encode!(synth.data)
-      File.write!(temp_filename, json_data)
-
       # Use Modsynth.play with virtual device
-      _result = Modsynth.play(temp_filename, "virtual")
+      Modsynth.specs_to_data(synths, synth.data)
+      |> Modsynth.play("virtual")
 
       pid = MidiPlayer.play(midi_file_path, synth: virtual_conn)
       MidiPlayer.notify_when_play_done(pid)
-      File.rm(temp_filename)
       new_state = %{state | synth_running: true, midi_player_pid: pid}
       {:reply, {:ok, "Synth started with MIDI file: #{midi_file_path}"}, new_state}
     catch
