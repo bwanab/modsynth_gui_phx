@@ -19,6 +19,7 @@ defmodule ModsynthGuiPhx.SynthManager do
     {:ok, %{
       current_synth: nil,
       synth_running: false,
+      midi_player_pid: nil,
       available_synthdefs: [],
       available_node_types: available_node_types,
       virtual_conn: nil
@@ -130,11 +131,14 @@ defmodule ModsynthGuiPhx.SynthManager do
     {:reply, {:error, "No synth loaded"}, state}
   end
 
-  def handle_call(:stop_synth, _from, %{current_synth: _synth} = state) do
+  def handle_call(:stop_synth, _from, %{midi_player_pid: pid} = state) do
     try do
       # Stop the synth using group_free (as seen in the Scenic example)
       ScClient.group_free(1)
-      new_state = %{state | synth_running: false}
+      if !is_nil(pid) do
+        MidiPlayer.stop(pid)
+      end
+      new_state = %{state | synth_running: false, midi_player_pid: nil}
       {:reply, {:ok, "Synth stopped"}, new_state}
     catch
       error ->
@@ -267,7 +271,7 @@ defmodule ModsynthGuiPhx.SynthManager do
       pid = MidiPlayer.play(midi_file_path, synth: virtual_conn)
       MidiPlayer.notify_when_play_done(pid)
       File.rm(temp_filename)
-      new_state = %{state | synth_running: true}
+      new_state = %{state | synth_running: true, midi_player_pid: pid}
       {:reply, {:ok, "Synth started with MIDI file: #{midi_file_path}"}, new_state}
     catch
       error ->
