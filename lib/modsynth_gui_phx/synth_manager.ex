@@ -76,8 +76,8 @@ defmodule ModsynthGuiPhx.SynthManager do
       {nodes, connections, dims} = Modsynth.specs_to_data(synths, synth_data)
 
       # Log the structure of the nodes for debugging
-      Logger.info("Nodes structure: #{inspect(nodes)}")
-      Logger.info("Connections structure: #{inspect(connections)}")
+      Logger.debug("Nodes structure: #{inspect(nodes)}")
+      Logger.debug("Connections structure: #{inspect(connections)}")
 
       new_state = %{state |
         current_synth: %{
@@ -108,6 +108,7 @@ defmodule ModsynthGuiPhx.SynthManager do
       if !is_nil(pid) do
         MidiPlayer.stop(pid)
       end
+      MidiInClient.stop_midi()
       new_state = %{state | synth_running: false, midi_player_pid: nil}
       {:reply, {:ok, "Synth stopped"}, new_state}
     catch
@@ -243,6 +244,7 @@ defmodule ModsynthGuiPhx.SynthManager do
 
   def handle_info(:midi_play_done, state) do
     ScClient.group_free(1)
+    MidiInClient.stop_midi()
     {:noreply, state}
   end
 

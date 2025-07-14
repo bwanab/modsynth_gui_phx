@@ -1,8 +1,10 @@
 defmodule ModsynthGuiPhx.FileManager do
   @moduledoc """
-  Manages file operations for synth networks including reading/writing 
+  Manages file operations for synth networks including reading/writing
   JSON files and handling directory structure.
   """
+
+  require Logger
 
   @default_user_dir "~/.modsynth"
   @synth_networks_dir "synth_networks"
@@ -27,28 +29,28 @@ defmodule ModsynthGuiPhx.FileManager do
     # Use the actual source directory instead of the compiled app directory
     example_dir = Path.join([__DIR__, "..", "..", "..", "sc_em", "examples"])
                   |> Path.expand()
-    
-    IO.puts("DEBUG: Looking for user files in: #{networks_dir}")
-    IO.puts("DEBUG: Looking for example files in: #{example_dir}")
-    IO.puts("DEBUG: Example dir exists? #{File.exists?(example_dir)}")
-    
+
+    Logger.debug("Looking for user files in: #{networks_dir}")
+    Logger.debug("Looking for example files in: #{example_dir}")
+    Logger.debug("Example dir exists? #{File.exists?(example_dir)}")
+
     user_files = list_json_files(networks_dir, "User")
     example_files = list_json_files(example_dir, "Examples")
-    
-    IO.puts("DEBUG: Found #{length(user_files)} user files")
-    IO.puts("DEBUG: Found #{length(example_files)} example files")
-    
+
+    Logger.debug("Found #{length(user_files)} user files")
+    Logger.debug("Found #{length(example_files)} example files")
+
     {user_files, example_files}
   end
 
   defp list_json_files(directory, category) do
-    IO.puts("DEBUG: Listing files in directory: #{directory}")
+    Logger.debug("Listing files in directory: #{directory}")
     case File.ls(directory) do
       {:ok, files} ->
-        IO.puts("DEBUG: Found #{length(files)} total files: #{inspect(files)}")
+        Logger.debug("Found #{length(files)} total files: #{inspect(files)}")
         json_files = files |> Enum.filter(&String.ends_with?(&1, ".json"))
-        IO.puts("DEBUG: Found #{length(json_files)} JSON files: #{inspect(json_files)}")
-        
+        Logger.debug("Found #{length(json_files)} JSON files: #{inspect(json_files)}")
+
         json_files
         |> Enum.map(fn file ->
           %{
@@ -57,9 +59,9 @@ defmodule ModsynthGuiPhx.FileManager do
             category: category
           }
         end)
-      
-      {:error, reason} -> 
-        IO.puts("DEBUG: Error listing directory #{directory}: #{inspect(reason)}")
+
+      {:error, reason} ->
+        Logger.debug("Error listing directory #{directory}: #{inspect(reason)}")
         []
     end
   end
@@ -71,7 +73,7 @@ defmodule ModsynthGuiPhx.FileManager do
           {:ok, data} -> {:ok, data}
           {:error, reason} -> {:error, "JSON decode error: #{inspect(reason)}"}
         end
-      
+
       {:error, reason} -> {:error, "File read error: #{inspect(reason)}"}
     end
   end
@@ -79,14 +81,14 @@ defmodule ModsynthGuiPhx.FileManager do
   def save_synth_file(filename, data) do
     ensure_directories()
     file_path = Path.join(synth_networks_dir(), "#{filename}.json")
-    
+
     case Jason.encode(data, pretty: true) do
       {:ok, json} ->
         case File.write(file_path, json) do
           :ok -> {:ok, file_path}
           {:error, reason} -> {:error, "Write error: #{inspect(reason)}"}
         end
-      
+
       {:error, reason} -> {:error, "JSON encode error: #{inspect(reason)}"}
     end
   end
