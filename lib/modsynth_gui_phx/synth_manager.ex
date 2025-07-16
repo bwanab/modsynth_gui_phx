@@ -208,7 +208,7 @@ defmodule ModsynthGuiPhx.SynthManager do
                                                                    available_node_types: synths} = state) do
     try do
       Modsynth.specs_to_data(synths, synth.data)
-      |> Modsynth.play("virtual")
+      |> Modsynth.play(device_name)
 
       new_state = %{state | synth_running: true}
       {:reply, {:ok, "Synth started with device: #{device_name}"}, new_state}
