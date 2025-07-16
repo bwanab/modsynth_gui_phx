@@ -55,7 +55,8 @@ defmodule ModsynthGuiPhx.MixProject do
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.1.1"},
       {:bandit, "~> 1.5"},
-      {:sc_em, path: "../sc_em"}
+      # {:sc_em, path: "../sc_em"}
+      {:sc_em, github: "bwanab/sc_em"}
     ]
   end
 
