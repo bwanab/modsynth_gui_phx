@@ -74,6 +74,12 @@ export const SynthCanvas = {
       return;
     }
     
+    // Check if we clicked on a control knob (skip dragging for knobs)
+    if (e.target.closest('circle[phx-hook="ControlKnob"]') || 
+        e.target.closest('circle[id^="control-knob-"]')) {
+      return;
+    }
+    
     // Check if we clicked on a node
     const nodeGroup = e.target.closest('g[id^="node-"]');
     if (!nodeGroup) return;
