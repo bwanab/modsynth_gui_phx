@@ -607,6 +607,61 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     end
   end
 
+  # Handle phx-click-away event (catch-all for click-away interactions)
+  def handle_event("phx-click-away", _, socket) do
+    # This is a no-op handler for phx-click-away events
+    # The actual hiding is handled by specific events like hide_context_menu
+    {:noreply, socket}
+  end
+
+  def handle_event("update_node_info_params", params, socket) do
+    %{"node_id" => node_id_str, "val" => val_str, "min_val" => min_val_str, "max_val" => max_val_str} = params
+    
+    # Parse the node ID and values
+    node_id = String.to_integer(node_id_str)
+    val = parse_float(val_str)
+    min_val = parse_float(min_val_str)
+    max_val = parse_float(max_val_str)
+    
+    # Validate ranges
+    cond do
+      min_val >= max_val ->
+        {:noreply, put_flash(socket, :error, "Minimum value must be less than maximum value")}
+      
+      val < min_val || val > max_val ->
+        {:noreply, put_flash(socket, :error, "Current value must be between minimum and maximum values")}
+      
+      true ->
+        # Find and update the node
+        updated_nodes = Enum.map(socket.assigns.nodes, fn node ->
+          if node["id"] == node_id do
+            node
+            |> Map.put("val", val)
+            |> Map.put("min_val", min_val)
+            |> Map.put("max_val", max_val)
+          else
+            node
+          end
+        end)
+        
+        # Update the node in the modal as well
+        updated_node = Enum.find(updated_nodes, &(&1["id"] == node_id))
+        
+        # Send parameter update to SuperCollider if in run mode
+        if socket.assigns.mode == :run do
+          send_parameter_to_supercollider(socket, node_id, val)
+        end
+        
+        socket =
+          socket
+          |> assign(:nodes, updated_nodes)
+          |> assign(:node_info_modal, %{socket.assigns.node_info_modal | node: updated_node})
+          |> put_flash(:info, "Node parameters updated successfully")
+        
+        {:noreply, socket}
+    end
+  end
+
   defp create_connection(socket, from_node_id, from_port, to_node_id, to_port) do
     # Validate that nodes exist
     from_node = Enum.find(socket.assigns.nodes, &(&1["id"] == from_node_id))
@@ -1262,6 +1317,55 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
                   <% end %>
                 </div>
               </div>
+
+              <!-- Editable Parameters (for cc-in and const nodes) -->
+              <%= if @node_info_modal.node["name"] in ["cc-in", "const"] do %>
+                <div>
+                  <h4 class="text-sm font-medium text-gray-300 mb-2">Parameters</h4>
+                  <form phx-submit="update_node_info_params" phx-value-node_id={@node_info_modal.node["id"]} class="space-y-3">
+                    <div class="grid grid-cols-3 gap-3">
+                      <div>
+                        <label class="block text-xs font-medium text-gray-300 mb-1">Current Value</label>
+                        <input
+                          type="number"
+                          name="val"
+                          step="0.1"
+                          value={@node_info_modal.node["val"] || 0.0}
+                          class="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label class="block text-xs font-medium text-gray-300 mb-1">Min Value</label>
+                        <input
+                          type="number"
+                          name="min_val"
+                          step="0.1"
+                          value={@node_info_modal.node["min_val"] || 0.0}
+                          class="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label class="block text-xs font-medium text-gray-300 mb-1">Max Value</label>
+                        <input
+                          type="number"
+                          name="max_val"
+                          step="0.1"
+                          value={@node_info_modal.node["max_val"] || 10.0}
+                          class="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+                    <div class="flex justify-end">
+                      <button
+                        type="submit"
+                        class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs"
+                      >
+                        Update
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              <% end %>
 
               <!-- Ports Information -->
               <div>
@@ -2105,6 +2209,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
         []
     end
   end
+
 
   @impl true
   def handle_info(:fetch_connection_values, socket) do
