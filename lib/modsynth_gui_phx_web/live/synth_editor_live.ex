@@ -29,6 +29,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       |> assign(:viewport_size, %{width: 1200, height: 800})
       |> assign(:show_file_browser, false)
       |> assign(:new_filename, "")
+      |> assign(:filename_suggestions, [])
       |> assign(:warnings, [])
       |> assign(:connection_mode, %{active: false, from_node: nil, from_port: nil})
       |> assign(:context_menu, %{visible: false, x: 0, y: 0, node_id: nil})
@@ -84,6 +85,8 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
                   socket
                   |> assign(:current_synth, data)
                   |> assign(:current_filename, filename)
+                  |> assign(:new_filename, filename)
+                  |> assign(:filename_suggestions, [])
                   |> assign(:nodes, enriched_nodes)
                   |> assign(:connections, port_connections)
                   |> assign(:show_file_browser, false)
@@ -134,6 +137,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
             |> assign(:all_files, all_files)
             |> assign(:current_filename, filename)
             |> assign(:new_filename, "")
+            |> assign(:filename_suggestions, [])
             |> put_flash(:info, "File saved successfully")
 
           {:noreply, socket}
@@ -147,7 +151,36 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
   end
 
   def handle_event("update_filename", %{"filename" => filename}, socket) do
-    {:noreply, assign(socket, :new_filename, filename)}
+    # Get filename suggestions based on what the user has typed
+    suggestions = if String.length(filename) > 0 do
+      socket.assigns.all_files
+      |> Enum.filter(fn file -> 
+        String.contains?(String.downcase(file.name), String.downcase(filename))
+      end)
+      |> Enum.take(10)  # Limit to 10 suggestions
+    else
+      []
+    end
+    
+    socket =
+      socket
+      |> assign(:new_filename, filename)
+      |> assign(:filename_suggestions, suggestions)
+    
+    {:noreply, socket}
+  end
+
+  def handle_event("select_filename_suggestion", %{"filename" => filename}, socket) do
+    socket =
+      socket
+      |> assign(:new_filename, filename)
+      |> assign(:filename_suggestions, [])
+    
+    {:noreply, socket}
+  end
+
+  def handle_event("clear_filename_suggestions", _, socket) do
+    {:noreply, assign(socket, :filename_suggestions, [])}
   end
 
   def handle_event("node_moved", %{"id" => id, "x" => x, "y" => y}, socket) do
@@ -1126,14 +1159,35 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
 
           <div class="flex items-center space-x-2">
             <form phx-submit="save_file" class="flex items-center space-x-2">
-              <input
-                type="text"
-                name="filename"
-                placeholder="Enter filename"
-                value={@new_filename}
-                phx-change="update_filename"
-                class="px-3 py-1 bg-gray-700 rounded text-sm"
-              />
+              <div class="relative" phx-click-away="clear_filename_suggestions">
+                <input
+                  type="text"
+                  name="filename"
+                  placeholder="Enter filename"
+                  value={@new_filename}
+                  phx-change="update_filename"
+                  class="px-3 py-1 bg-gray-700 rounded text-sm"
+                />
+                <%= if length(@filename_suggestions) > 0 do %>
+                  <div class="absolute top-full left-0 right-0 bg-white border border-gray-300 rounded-md shadow-lg mt-1 max-h-40 overflow-y-auto z-10">
+                    <%= for suggestion <- @filename_suggestions do %>
+                      <div
+                        phx-click="select_filename_suggestion"
+                        phx-value-filename={suggestion.name}
+                        class="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center justify-between"
+                      >
+                        <span class="text-sm text-gray-800 flex-1 truncate"><%= suggestion.name %></span>
+                        <span class={[
+                          "text-xs px-2 py-0.5 rounded-full ml-2 flex-shrink-0",
+                          if(suggestion.category == "User", do: "bg-blue-600 text-blue-100", else: "bg-green-600 text-green-100")
+                        ]}>
+                          <%= if suggestion.category == "User", do: "user", else: "example" %>
+                        </span>
+                      </div>
+                    <% end %>
+                  </div>
+                <% end %>
+              </div>
               <button
                 type="submit"
                 class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-sm"
