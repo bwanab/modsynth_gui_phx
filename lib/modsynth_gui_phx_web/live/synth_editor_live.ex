@@ -41,6 +41,8 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       |> assign(:input_control_list, [])
       |> assign(:connection_list, [])
       |> assign(:node_config_modal, %{visible: false, node_type: nil, svg_x: 0, svg_y: 0})
+      |> assign(:bus_value_display, false)
+      |> assign(:connection_values, %{})
 
     {:ok, socket}
   end
@@ -231,6 +233,12 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
             |> assign(:mode, :run)
             |> assign(:input_control_list, input_control_list)
             |> assign(:connection_list, connection_list)
+            
+            # Start polling for bus values if display is enabled
+            if socket.assigns.bus_value_display do
+              send(self(), :fetch_connection_values)
+            end
+            
             {:noreply, socket}
 
           {:error, reason} ->
@@ -284,6 +292,11 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           |> assign(:mode, :run)
           |> assign(:input_control_list, input_control_list)
           |> assign(:connection_list, connection_list)
+          
+          # Start polling for bus values if display is enabled
+          if socket.assigns.bus_value_display do
+            send(self(), :fetch_connection_values)
+          end
           {:noreply, socket}
 
         {:error, reason} ->
@@ -300,11 +313,33 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
         |> assign(:mode, :edit)
         |> assign(:input_control_list, [])
         |> assign(:connection_list, [])
+        |> assign(:bus_value_display, false)
+        |> assign(:connection_values, %{})
         {:noreply, socket}
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, reason)}
     end
+  end
+
+  def handle_event("toggle_bus_value_display", _, socket) do
+    new_display_state = !socket.assigns.bus_value_display
+    
+    socket = socket
+    |> assign(:bus_value_display, new_display_state)
+    |> assign(:connection_values, %{})
+    
+    # Start polling if enabling display and in run mode
+    if new_display_state and socket.assigns.mode == :run do
+      send(self(), :fetch_connection_values)
+    end
+    
+    {:noreply, socket}
+  end
+
+  def handle_event("fetch_connection_values", _, socket) do
+    send(self(), :fetch_connection_values)
+    {:noreply, socket}
   end
 
 
@@ -892,6 +927,24 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
               <%= if @mode == :run, do: "RUN MODE - Live parameters", else: "EDIT MODE" %>
             </span>
           </div>
+          
+          <!-- Bus Value Display Toggle (only show in run mode) -->
+          <%= if @mode == :run do %>
+            <button
+              phx-click="toggle_bus_value_display"
+              class={[
+                "flex items-center space-x-2 px-3 py-1 rounded-full text-sm",
+                if(@bus_value_display, do: "bg-yellow-600 hover:bg-yellow-700", else: "bg-gray-600 hover:bg-gray-700")
+              ]}
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+              </svg>
+              <span class="text-sm font-medium">
+                <%= if @bus_value_display, do: "Hide Values", else: "Show Values" %>
+              </span>
+            </button>
+          <% end %>
         </div>
 
         <div class="flex items-center space-x-4">
@@ -1091,6 +1144,9 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
                 connection={connection}
                 nodes={@nodes}
                 connection_id={index}
+                bus_value_display={@bus_value_display}
+                connection_values={@connection_values}
+                connection_list={@connection_list}
               />
             <% end %>
 
@@ -1598,8 +1654,26 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
         _ -> "#EF4444"  # Default red
       end
 
+      # Find the corresponding connection in connection_list to get bus_id
+      connection_info = Enum.at(assigns.connection_list, assigns.connection_id)
+      bus_value = if assigns.bus_value_display && connection_info do
+        case Map.get(assigns.connection_values, connection_info.bus_id) do
+          %{value: value} -> format_bus_value(value)
+          _ -> nil
+        end
+      else
+        nil
+      end
+
+      # Calculate midpoint for value display
+      mid_x = (from_x + to_x) / 2
+      mid_y = (from_y + to_y) / 2
+
       assigns = assign(assigns, :path, path)
       assigns = assign(assigns, :cable_color, cable_color)
+      assigns = assign(assigns, :bus_value, bus_value)
+      assigns = assign(assigns, :mid_x, mid_x)
+      assigns = assign(assigns, :mid_y, mid_y)
 
       ~H"""
       <g
@@ -1637,6 +1711,32 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           stroke-linecap="round"
           class="connection-highlight"
         />
+
+        <!-- Bus Value Display -->
+        <%= if @bus_value do %>
+          <!-- Value background -->
+          <rect
+            x={@mid_x - 15}
+            y={@mid_y - 8}
+            width="30"
+            height="16"
+            rx="3"
+            fill="rgba(0,0,0,0.8)"
+            stroke="#FCD34D"
+            stroke-width="1"
+          />
+          <!-- Value text -->
+          <text
+            x={@mid_x}
+            y={@mid_y + 1}
+            text-anchor="middle"
+            dominant-baseline="middle"
+            class="text-xs fill-yellow-300 font-mono"
+            style="pointer-events: none;"
+          >
+            <%= @bus_value %>
+          </text>
+        <% end %>
 
         <!-- Invisible wider area for easier clicking -->
         <path
@@ -1869,6 +1969,24 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     end
   end
 
+  defp format_bus_value(value) when is_number(value) do
+    cond do
+      # Very small values (< 0.001) -> show as 0.0
+      abs(value) < 0.001 -> "0.0"
+      
+      # Small values (< 1.0) -> show 3 decimal places
+      abs(value) < 1.0 -> Float.round(value, 3) |> Float.to_string()
+      
+      # Medium values (< 10.0) -> show 1 decimal place
+      abs(value) < 10.0 -> Float.round(value, 1) |> Float.to_string()
+      
+      # Large values (>= 10.0) -> show integer part only
+      true -> round(value) |> Integer.to_string()
+    end
+  end
+
+  defp format_bus_value(_), do: "N/A"
+
   defp create_current_synth_data(socket) do
     # Convert port-based connections back to parameter-based format
     param_connections = convert_connections_to_param_format(socket.assigns.connections, socket.assigns.nodes)
@@ -1985,6 +2103,35 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
 
       {:error, _} ->
         []
+    end
+  end
+
+  @impl true
+  def handle_info(:fetch_connection_values, socket) do
+    # Only fetch values if in run mode and bus value display is enabled
+    if socket.assigns.mode == :run and socket.assigns.bus_value_display do
+      case ModsynthGuiPhx.SynthManager.get_connection_values(socket.assigns.connection_list) do
+        {:ok, connection_values} ->
+          # Convert connection_values to a map for easy lookup
+          # connection_values format: [{bus_id, desc, value}, ...]
+          values_map = Enum.reduce(connection_values, %{}, fn {bus_id, desc, value}, acc ->
+            Map.put(acc, bus_id, %{desc: desc, value: value})
+          end)
+          
+          socket = assign(socket, :connection_values, values_map)
+          
+          # Schedule next fetch in 200ms
+          Process.send_after(self(), :fetch_connection_values, 200)
+          
+          {:noreply, socket}
+        
+        {:error, _reason} ->
+          # If there's an error, just continue without updating values
+          Process.send_after(self(), :fetch_connection_values, 500)
+          {:noreply, socket}
+      end
+    else
+      {:noreply, socket}
     end
   end
 end

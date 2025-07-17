@@ -76,6 +76,10 @@ defmodule ModsynthGuiPhx.SynthManager do
     GenServer.call(__MODULE__, {:play_midi_file_with_current_data, midi_file_path, current_synth_data})
   end
 
+  def get_connection_values(connection_list) do
+    GenServer.call(__MODULE__, {:get_connection_values, connection_list})
+  end
+
   # Server callbacks
 
   def handle_call({:load_synth, synth_data}, _from, %{available_node_types: synths} = state) do
@@ -279,6 +283,21 @@ defmodule ModsynthGuiPhx.SynthManager do
       error ->
         Logger.error("Error playing MIDI file #{midi_file_path}: #{inspect(error)}")
         {:reply, {:error, "Error playing MIDI file: #{inspect(error)}"}, state}
+    end
+  end
+
+  def handle_call({:get_connection_values, connection_list}, _from, state) do
+    if state.synth_running do
+      try do
+        connection_values = Modsynth.get_all_connection_values(connection_list)
+        {:reply, {:ok, connection_values}, state}
+      catch
+        error ->
+          Logger.error("Error getting connection values: #{inspect(error)}")
+          {:reply, {:error, "Error getting connection values: #{inspect(error)}"}, state}
+      end
+    else
+      {:reply, {:error, "Synth not running"}, state}
     end
   end
 
