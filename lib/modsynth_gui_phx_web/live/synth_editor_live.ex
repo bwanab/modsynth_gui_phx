@@ -37,6 +37,10 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       |> assign(:play_menu, %{visible: false, midi_ports: [], port_map: %{}, selected_port: nil})
       |> assign(:midi_file_path, "")
       |> assign(:midi_file_suggestions, [])
+      |> assign(:mode, :edit)  # :edit or :run
+      |> assign(:input_control_list, [])
+      |> assign(:connection_list, [])
+      |> assign(:node_config_modal, %{visible: false, node_type: nil, svg_x: 0, svg_y: 0})
 
     {:ok, socket}
   end
@@ -216,11 +220,17 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
         {:noreply, put_flash(socket, :error, "No MIDI device selected")}
 
       %{name: device_name} ->
-        case ModsynthGuiPhx.SynthManager.play_synth_with_device(device_name) do
-          {:ok, message} ->
+        # Create current synth data from LiveView state
+        current_synth_data = create_current_synth_data(socket)
+        
+        case ModsynthGuiPhx.SynthManager.play_synth_with_current_data(device_name, current_synth_data) do
+          {:ok, {message, input_control_list, connection_list}} ->
             socket = socket
             |> put_flash(:info, message)
             |> assign(:play_menu, %{socket.assigns.play_menu | visible: false})
+            |> assign(:mode, :run)
+            |> assign(:input_control_list, input_control_list)
+            |> assign(:connection_list, connection_list)
             {:noreply, socket}
 
           {:error, reason} ->
@@ -263,11 +273,17 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     if String.trim(midi_file_path) == "" do
       {:noreply, put_flash(socket, :error, "Please enter a MIDI file path")}
     else
-      case ModsynthGuiPhx.SynthManager.play_midi_file(midi_file_path) do
-        {:ok, message} ->
+      # Create current synth data from LiveView state
+      current_synth_data = create_current_synth_data(socket)
+      
+      case ModsynthGuiPhx.SynthManager.play_midi_file_with_current_data(midi_file_path, current_synth_data) do
+        {:ok, {message, input_control_list, connection_list}} ->
           socket = socket
           |> put_flash(:info, message)
           |> assign(:play_menu, %{socket.assigns.play_menu | visible: false})
+          |> assign(:mode, :run)
+          |> assign(:input_control_list, input_control_list)
+          |> assign(:connection_list, connection_list)
           {:noreply, socket}
 
         {:error, reason} ->
@@ -279,7 +295,12 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
   def handle_event("stop_synth", _, socket) do
     case ModsynthGuiPhx.SynthManager.stop_synth() do
       {:ok, message} ->
-        {:noreply, put_flash(socket, :info, message)}
+        socket = socket
+        |> put_flash(:info, message)
+        |> assign(:mode, :edit)
+        |> assign(:input_control_list, [])
+        |> assign(:connection_list, [])
+        {:noreply, socket}
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, reason)}
@@ -462,55 +483,29 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
   end
 
   def handle_event("create_node", %{"node_type" => node_type}, socket) do
-    # Find the next available node ID
-    next_id = case socket.assigns.nodes do
-      [] -> 1
-      nodes -> (Enum.map(nodes, & &1["id"]) |> Enum.max()) + 1
-    end
-
-    # Get the SVG coordinates from the node creation menu
-    svg_x = socket.assigns.node_creation_menu.svg_x
-    svg_y = socket.assigns.node_creation_menu.svg_y
-
-    # Create the new node with default values
-    base_node = %{
-      "id" => next_id,
-      "name" => node_type,
-      "x" => svg_x - 70,  # Center the node on the click position
-      "y" => svg_y - 40,
-      "val" => if(node_type == "const", do: 5.0, else: nil),  # Default value for const nodes
-      "control" => nil
-    }
-
-    # Add ranges for const nodes
-    new_node = add_const_node_ranges(base_node)
-
-    # Add enriched node data from available types
-    case ModsynthGuiPhx.SynthManager.get_available_node_types() do
-      {:ok, node_types} ->
-        case Map.get(node_types, node_type) do
-          {params, _bus_type} ->
-            enriched_node = Map.put(new_node, "parameters", params)
-            updated_nodes = [enriched_node | socket.assigns.nodes]
-
-            socket =
-              socket
-              |> assign(:nodes, updated_nodes)
-              |> assign(:node_creation_menu, %{visible: false, x: 0, y: 0, svg_x: 0, svg_y: 0, available_types: []})
-              |> put_flash(:info, "#{String.upcase(node_type)} node created")
-
-            {:noreply, socket}
-
-          nil ->
-            {:noreply, put_flash(socket, :error, "Unknown node type: #{node_type}")}
-        end
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to create node: #{reason}")}
+    # Check if this node type needs configuration
+    if node_type in ["const", "cc-in"] do
+      # Show configuration modal for const and cc-in nodes
+      svg_x = socket.assigns.node_creation_menu.svg_x
+      svg_y = socket.assigns.node_creation_menu.svg_y
+      
+      socket = socket
+      |> assign(:node_config_modal, %{
+        visible: true,
+        node_type: node_type,
+        svg_x: svg_x,
+        svg_y: svg_y
+      })
+      |> assign(:node_creation_menu, %{visible: false, x: 0, y: 0, svg_x: 0, svg_y: 0, available_types: []})
+      
+      {:noreply, socket}
+    else
+      # Create node immediately for other types
+      create_node_immediately(socket, node_type, nil, nil, nil, nil)
     end
   end
 
-  def handle_event("update_const_value", %{"node_id" => node_id, "value" => value}, socket) do
+  def handle_event("update_node_value", %{"node_id" => node_id, "value" => value}, socket) do
     node_id = if is_binary(node_id), do: String.to_integer(node_id), else: node_id
     new_value = cond do
       is_number(value) -> value
@@ -523,7 +518,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     end
 
     updated_nodes = Enum.map(socket.assigns.nodes, fn node ->
-      if node["id"] == node_id and node["name"] == "const" do
+      if node["id"] == node_id and node["name"] in ["const", "cc-in"] do
         # Clamp value to min/max range
         min_val = node["min_val"] || 0.0
         max_val = node["max_val"] || 10.0
@@ -535,7 +530,46 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       end
     end)
 
-    {:noreply, assign(socket, :nodes, updated_nodes)}
+    socket = assign(socket, :nodes, updated_nodes)
+    
+    # If in run mode, send the value to SuperCollider in real-time
+    if socket.assigns.mode == :run do
+      send_parameter_to_supercollider(socket, node_id, new_value)
+    end
+
+    {:noreply, socket}
+  end
+
+  def handle_event("hide_node_config_modal", _, socket) do
+    socket = assign(socket, :node_config_modal, %{visible: false, node_type: nil, svg_x: 0, svg_y: 0})
+    {:noreply, socket}
+  end
+
+  def handle_event("create_configured_node", params, socket) do
+    %{
+      "node_type" => node_type,
+      "val" => val_str,
+      "min_val" => min_val_str,
+      "max_val" => max_val_str,
+      "control" => control
+    } = params
+    
+    # Parse values
+    val = parse_float(val_str)
+    min_val = parse_float(min_val_str)
+    max_val = parse_float(max_val_str)
+    
+    # Validate ranges
+    cond do
+      min_val >= max_val ->
+        {:noreply, put_flash(socket, :error, "Minimum value must be less than maximum value")}
+      
+      val < min_val || val > max_val ->
+        {:noreply, put_flash(socket, :error, "Initial value must be between minimum and maximum values")}
+      
+      true ->
+        create_node_immediately(socket, node_type, val, min_val, max_val, control)
+    end
   end
 
   defp create_connection(socket, from_node_id, from_port, to_node_id, to_port) do
@@ -591,12 +625,12 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           Map.put(ui_node, "parameters", modsynth_node.parameters)
       end
 
-      # Add min/max ranges for const nodes
-      add_const_node_ranges(enriched_node)
+      # Add min/max ranges for const and cc-in nodes
+      add_node_ranges(enriched_node)
     end)
   end
 
-  defp add_const_node_ranges(%{"name" => "const"} = node) do
+  defp add_node_ranges(%{"name" => "const"} = node) do
     current_val = node["val"] || 5.0  # Default value if none exists
 
     # For existing const nodes: 0 to 2x current value
@@ -613,7 +647,24 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     |> Map.put("val", current_val)  # Ensure val is set
   end
 
-  defp add_const_node_ranges(node), do: node
+  defp add_node_ranges(%{"name" => "cc-in"} = node) do
+    current_val = node["val"] || 64.0  # Default MIDI value (0-127 range)
+
+    # For cc-in nodes: default MIDI range 0-127
+    # For new nodes without a value: 0 to 127
+    {min_val, max_val} = if node["val"] do
+      {0.0, 127.0}
+    else
+      {0.0, 127.0}
+    end
+
+    node
+    |> Map.put("min_val", min_val)
+    |> Map.put("max_val", max_val)
+    |> Map.put("val", current_val)  # Ensure val is set
+  end
+
+  defp add_node_ranges(node), do: node
 
   defp convert_enriched_nodes_to_original_format(enriched_nodes) do
     # Remove the enriched parameters field added during loading to restore the original format
@@ -827,6 +878,20 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
               <span class="text-sm font-medium">Connection Mode - Click input port to connect</span>
             </div>
           <% end %>
+          
+          <!-- Mode Indicator -->
+          <div class={[
+            "flex items-center space-x-2 px-3 py-1 rounded-full",
+            if(@mode == :run, do: "bg-green-600", else: "bg-gray-600")
+          ]}>
+            <div class={[
+              "w-2 h-2 rounded-full",
+              if(@mode == :run, do: "bg-white animate-pulse", else: "bg-gray-300")
+            ]}></div>
+            <span class="text-sm font-medium">
+              <%= if @mode == :run, do: "RUN MODE - Live parameters", else: "EDIT MODE" %>
+            </span>
+          </div>
         </div>
 
         <div class="flex items-center space-x-4">
@@ -1199,6 +1264,106 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           </div>
         </div>
       <% end %>
+      
+      <!-- Node Configuration Modal -->
+      <%= if @node_config_modal.visible do %>
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" phx-click="hide_node_config_modal">
+          <div class="bg-gray-800 border border-gray-600 rounded-lg shadow-xl max-w-md w-full mx-4" phx-click="phx-click-away">
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between p-4 border-b border-gray-600">
+              <h3 class="text-lg font-semibold text-white">
+                Configure <%= String.upcase(@node_config_modal.node_type) %> Node
+              </h3>
+              <button
+                phx-click="hide_node_config_modal"
+                class="text-gray-400 hover:text-white"
+              >
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+              </button>
+            </div>
+
+            <!-- Modal Content -->
+            <form phx-submit="create_configured_node" class="p-4 space-y-4">
+              <input type="hidden" name="node_type" value={@node_config_modal.node_type} />
+              
+              <!-- Initial Value -->
+              <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">Initial Value</label>
+                <input
+                  type="number"
+                  name="val"
+                  step="0.1"
+                  value={if @node_config_modal.node_type == "const", do: "5.0", else: "64.0"}
+                  class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+
+              <!-- Minimum Value -->
+              <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">Minimum Value</label>
+                <input
+                  type="number"
+                  name="min_val"
+                  step="0.1"
+                  value={if @node_config_modal.node_type == "const", do: "0.0", else: "0.0"}
+                  class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+
+              <!-- Maximum Value -->
+              <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">Maximum Value</label>
+                <input
+                  type="number"
+                  name="max_val"
+                  step="0.1"
+                  value={if @node_config_modal.node_type == "const", do: "10.0", else: "127.0"}
+                  class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+
+              <!-- Control Type (for cc-in nodes) -->
+              <%= if @node_config_modal.node_type == "cc-in" do %>
+                <div>
+                  <label class="block text-sm font-medium text-gray-300 mb-2">MIDI Control Type</label>
+                  <select
+                    name="control"
+                    class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">None</option>
+                    <option value="note">Note</option>
+                    <option value="gain">Gain</option>
+                  </select>
+                </div>
+              <% else %>
+                <input type="hidden" name="control" value="" />
+              <% end %>
+
+              <!-- Modal Footer -->
+              <div class="flex justify-end space-x-3 pt-4 border-t border-gray-600">
+                <button
+                  type="button"
+                  phx-click="hide_node_config_modal"
+                  class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded"
+                >
+                  Create Node
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      <% end %>
     </div>
     """
   end
@@ -1290,9 +1455,9 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
         ID: <%= @node["id"] %>
       </text>
 
-      <!-- Const Node Knob and Value Display -->
-      <%= if @node["name"] == "const" do %>
-        <.const_knob node={@node} />
+      <!-- Const and CC-in Node Knob and Value Display -->
+      <%= if @node["name"] in ["const", "cc-in"] do %>
+        <.control_knob node={@node} />
       <% else %>
         <!-- Parameter/Control Display for non-const nodes -->
         <%= if @node["control"] do %>
@@ -1489,7 +1654,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     end
   end
 
-  defp const_knob(assigns) do
+  defp control_knob(assigns) do
     # Calculate knob position and size based on available space
     assigns = assign(assigns, :knob_center_x, 70)
     assigns = assign(assigns, :knob_center_y, 55)
@@ -1529,9 +1694,17 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     assigns = assign(assigns, :indicator_x, assigns.knob_center_x + (assigns.knob_radius - 2) * :math.cos(angle_radians - :math.pi() / 2))
     assigns = assign(assigns, :indicator_y, assigns.knob_center_y + (assigns.knob_radius - 2) * :math.sin(angle_radians - :math.pi() / 2))
 
+    # Different colors for different node types
+    knob_color = case assigns.node["name"] do
+      "const" -> "#F59E0B"  # Orange for const
+      "cc-in" -> "#8B5CF6"  # Purple for cc-in
+      _ -> "#F59E0B"  # Default orange
+    end
+    assigns = assign(assigns, :knob_color, knob_color)
+
     ~H"""
-    <!-- Const Node Knob -->
-    <g class="const-knob">
+    <!-- Control Node Knob -->
+    <g class="control-knob">
       <!-- Knob Background Circle -->
       <circle
         cx={@knob_center_x}
@@ -1560,19 +1733,19 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
         y1={@knob_center_y}
         x2={@indicator_x}
         y2={@indicator_y}
-        stroke="#F59E0B"
+        stroke={@knob_color}
         stroke-width="2"
         stroke-linecap="round"
       />
 
       <!-- Interactive Area for Dragging -->
       <circle
-        id={"const-knob-#{@node["id"]}"}
+        id={"control-knob-#{@node["id"]}"}
         cx={@knob_center_x}
         cy={@knob_center_y}
         r={@knob_radius + 5}
         fill="transparent"
-        phx-hook="ConstKnob"
+        phx-hook="ControlKnob"
         data-node-id={@node["id"]}
         data-current-val={@current_val}
         data-min-val={@min_val}
@@ -1590,11 +1763,127 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       >
         <%= Float.round(@current_val, 2) %>
       </text>
+      
+      <!-- Node Type Label -->
+      <text
+        x={@knob_center_x}
+        y={@knob_center_y + @knob_radius + 28}
+        text-anchor="middle"
+        dominant-baseline="middle"
+        class="text-xs fill-gray-400"
+      >
+        <%= if @node["name"] == "cc-in", do: "CC", else: "CONST" %>
+      </text>
     </g>
     """
   end
 
   # Private helper functions
+
+  defp parse_float(str) do
+    case Float.parse(str || "0") do
+      {val, _} -> val
+      :error -> 0.0
+    end
+  end
+
+  defp create_node_immediately(socket, node_type, val, min_val, max_val, control) do
+    # Find the next available node ID
+    next_id = case socket.assigns.nodes do
+      [] -> 1
+      nodes -> (Enum.map(nodes, & &1["id"]) |> Enum.max()) + 1
+    end
+
+    # Get the SVG coordinates from the node creation menu or config modal
+    {svg_x, svg_y} = if socket.assigns.node_config_modal.visible do
+      {socket.assigns.node_config_modal.svg_x, socket.assigns.node_config_modal.svg_y}
+    else
+      {socket.assigns.node_creation_menu.svg_x, socket.assigns.node_creation_menu.svg_y}
+    end
+
+    # Create the new node with provided or default values
+    base_node = %{
+      "id" => next_id,
+      "name" => node_type,
+      "x" => svg_x - 70,  # Center the node on the click position
+      "y" => svg_y - 40,
+      "val" => val || cond do
+        node_type == "const" -> 5.0  # Default value for const nodes
+        node_type == "cc-in" -> 64.0  # Default MIDI value for cc-in nodes
+        true -> nil
+      end,
+      "control" => control
+    }
+
+    # Add custom ranges if provided, otherwise use defaults
+    new_node = if min_val && max_val do
+      base_node
+      |> Map.put("min_val", min_val)
+      |> Map.put("max_val", max_val)
+    else
+      add_node_ranges(base_node)
+    end
+
+    # Add enriched node data from available types
+    case ModsynthGuiPhx.SynthManager.get_available_node_types() do
+      {:ok, node_types} ->
+        case Map.get(node_types, node_type) do
+          {params, _bus_type} ->
+            enriched_node = Map.put(new_node, "parameters", params)
+            updated_nodes = [enriched_node | socket.assigns.nodes]
+
+            socket =
+              socket
+              |> assign(:nodes, updated_nodes)
+              |> assign(:node_creation_menu, %{visible: false, x: 0, y: 0, svg_x: 0, svg_y: 0, available_types: []})
+              |> assign(:node_config_modal, %{visible: false, node_type: nil, svg_x: 0, svg_y: 0})
+              |> put_flash(:info, "#{String.upcase(node_type)} node created")
+
+            {:noreply, socket}
+
+          nil ->
+            {:noreply, put_flash(socket, :error, "Unknown node type: #{node_type}")}
+        end
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to create node: #{reason}")}
+    end
+  end
+
+  defp send_parameter_to_supercollider(socket, node_id, value) do
+    # Find the input control for this node
+    input_control = Enum.find(socket.assigns.input_control_list, fn ic ->
+      ic.node_id == node_id
+    end)
+    
+    if input_control do
+      try do
+        ScClient.set_control(input_control.sc_id, input_control.control_name, value)
+        Logger.debug("Set control for node #{node_id}: #{input_control.sc_id}.#{input_control.control_name} = #{value}")
+      catch
+        error ->
+          Logger.error("Failed to set control for node #{node_id}: #{inspect(error)}")
+      end
+    else
+      Logger.warning("No input control found for node #{node_id}")
+    end
+  end
+
+  defp create_current_synth_data(socket) do
+    # Convert port-based connections back to parameter-based format
+    param_connections = convert_connections_to_param_format(socket.assigns.connections, socket.assigns.nodes)
+    
+    # Convert enriched nodes back to original format
+    original_nodes = convert_enriched_nodes_to_original_format(socket.assigns.nodes)
+    
+    # Create synth data structure compatible with backend
+    %{
+      "nodes" => original_nodes,
+      "connections" => param_connections,
+      "frame" => socket.assigns.canvas_size,
+      "master_vol" => 0.3
+    }
+  end
 
   defp get_configured_midi_directories do
     # Get the semicolon-delimited list from configuration and split it

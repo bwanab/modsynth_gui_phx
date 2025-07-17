@@ -226,8 +226,8 @@ export const SynthCanvas = {
   }
 };
 
-// ConstKnob Phoenix LiveView Hook for knob value controls
-export const ConstKnob = {
+// ControlKnob Phoenix LiveView Hook for knob value controls (const and cc-in)
+export const ControlKnob = {
   mounted() {
     this.isDragging = false;
     this.startY = 0;
@@ -284,7 +284,7 @@ export const ConstKnob = {
     this.currentVal = clampedValue;
     
     // Send update to LiveView
-    this.pushEvent('update_const_value', {
+    this.pushEvent('update_node_value', {
       node_id: this.nodeId,
       value: clampedValue
     });
