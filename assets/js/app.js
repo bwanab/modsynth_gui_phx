@@ -22,12 +22,13 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import topbar from "../vendor/topbar"
 import { SynthCanvas, ControlKnob, ViewportResize, AutoDismissFlash } from "./synth_canvas"
+import { CodeEditorHook } from "../../deps/live_monaco_editor/priv/static/live_monaco_editor.esm.js"
 
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 let liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: { SynthCanvas, ControlKnob, ConstKnob: ControlKnob, ViewportResize, AutoDismissFlash }
+  hooks: { SynthCanvas, ControlKnob, ConstKnob: ControlKnob, ViewportResize, AutoDismissFlash, CodeEditorHook }
 })
 
 // Show progress bar on live navigation and form submits

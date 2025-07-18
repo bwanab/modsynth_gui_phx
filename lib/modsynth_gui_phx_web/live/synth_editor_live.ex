@@ -987,6 +987,12 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       <div class="bg-gray-800 p-2 flex items-center justify-between border-b border-gray-700">
         <div class="flex items-center space-x-4">
           <h1 class="text-xl font-bold">Modular Synthesizer Editor</h1>
+          <.link
+            navigate="/strack_code_editor"
+            class="text-blue-400 hover:text-blue-300 text-sm font-medium"
+          >
+            STrack Code Editor
+          </.link>
           <%= if @current_filename do %>
             <div class="flex items-center space-x-2 px-3 py-1 bg-blue-600 rounded-full">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
