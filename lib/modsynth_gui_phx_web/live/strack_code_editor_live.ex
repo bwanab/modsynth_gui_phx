@@ -1,11 +1,7 @@
 defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
   use ModsynthGuiPhxWeb, :live_view
   
-  @default_code """
-  # Create a simple note and STrack
-  note = Note.new(:C, octave: 3, duration: 100)
-  %{0 => STrack.new([note], name: "example", tpqn: 960, type: :instrument, program_number: 73, bpm: 100)}
-  """
+  @default_code ""
 
   def mount(_params, _session, socket) do
     scripts_dir = Path.expand("~/.modsynth/strack_scripts")
@@ -18,7 +14,8 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
       |> assign(:error, nil)
       |> assign(:scripts_dir, scripts_dir)
       |> assign(:saved_filename, nil)
-      |> assign(:available_files, list_script_files(scripts_dir))
+      |> assign(:all_files, list_all_script_files(scripts_dir))
+      |> assign(:example_files_dir, Path.expand("./example_stracks"))
       |> assign(:playing, false)
       |> assign(:midi_player_pid, nil)
 
@@ -88,7 +85,7 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
           socket =
             socket
             |> assign(:saved_filename, filename)
-            |> assign(:available_files, list_script_files(socket.assigns.scripts_dir))
+            |> assign(:all_files, list_all_script_files(socket.assigns.scripts_dir))
             |> put_flash(:info, "Saved as #{filename}")
           {:noreply, socket}
         {:error, reason} ->
@@ -97,11 +94,10 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
     end
   end
 
-  def handle_event("load_file", %{"filename" => filename}, socket) do
-    filepath = Path.join(socket.assigns.scripts_dir, filename)
-    
+  def handle_event("load_file", %{"path" => filepath}, socket) do
     case File.read(filepath) do
       {:ok, content} ->
+        filename = Path.basename(filepath, ".exs")
         socket =
           socket
           |> assign(:code, content)
@@ -109,6 +105,9 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
           |> assign(:result, nil)
           |> assign(:error, nil)
           |> put_flash(:info, "Loaded #{filename}")
+        
+        # Explicitly push the loaded content to Monaco Editor
+        socket = LiveMonacoEditor.set_value(socket, content)
         {:noreply, socket}
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Failed to load: #{reason}")}
@@ -123,6 +122,14 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
       |> assign(:result, nil)
       |> assign(:error, nil)
       |> put_flash(:info, "New file created")
+    
+    # Explicitly clear the Monaco Editor
+    socket = LiveMonacoEditor.set_value(socket, @default_code)
+    {:noreply, socket}
+  end
+
+  def handle_event("viewport_resize", _params, socket) do
+    # Handle viewport resize event from phx-hook
     {:noreply, socket}
   end
 
@@ -229,12 +236,31 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
     end
   end
 
-  defp list_script_files(scripts_dir) do
-    case File.ls(scripts_dir) do
+  defp list_all_script_files(scripts_dir) do
+    # Get user files
+    user_files = list_script_files_in_dir(scripts_dir, "User")
+    
+    # Get example files  
+    example_files_dir = Path.expand("./example_stracks")
+    example_files = list_script_files_in_dir(example_files_dir, "Examples")
+    
+    # Combine and sort all files by name
+    (user_files ++ example_files)
+    |> Enum.sort_by(fn file -> file.name end)
+  end
+
+  defp list_script_files_in_dir(dir, category) do
+    case File.ls(dir) do
       {:ok, files} ->
         files
         |> Enum.filter(&String.ends_with?(&1, ".exs"))
-        |> Enum.sort()
+        |> Enum.map(fn file ->
+          %{
+            name: Path.basename(file, ".exs"),
+            path: Path.join(dir, file),
+            category: category
+          }
+        end)
       {:error, _} ->
         []
     end
@@ -250,49 +276,86 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
 
   def render(assigns) do
     ~H"""
-    <div class="min-h-screen bg-gray-100">
-      <div class="bg-white shadow-sm border-b">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div class="flex justify-between items-center py-4">
-            <h1 class="text-2xl font-bold text-gray-900">STrack Code Editor</h1>
-            <div class="flex space-x-2">
-              <button
-                phx-click="new_file"
-                class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-md text-sm font-medium"
-              >
-                New
-              </button>
-              <.link
-                navigate="/synth_editor"
-                class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium"
-              >
-                Synth Editor
-              </.link>
+    <div id="strack-code-editor-main" class="h-screen bg-gray-900 text-white overflow-hidden" phx-hook="ViewportResize">
+      <!-- Header -->
+      <div class="bg-gray-800 p-2 flex items-center justify-between border-b border-gray-700">
+        <div class="flex items-center space-x-4">
+          <h1 class="text-xl font-bold">STrack Code Editor</h1>
+          <.link
+            navigate="/synth_editor"
+            class="text-blue-400 hover:text-blue-300 text-sm font-medium"
+          >
+            Synth Editor
+          </.link>
+          <%= if @saved_filename do %>
+            <div class="flex items-center space-x-2 px-3 py-1 bg-blue-600 rounded-full">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+              </svg>
+              <span class="text-sm font-medium"><%= @saved_filename %></span>
             </div>
+          <% end %>
+          <%= if @playing do %>
+            <div class="flex items-center space-x-2 px-3 py-1 bg-green-600 rounded-full">
+              <div class="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+              <span class="text-sm font-medium">Playing STrack</span>
+            </div>
+          <% end %>
+        </div>
+
+        <div class="flex items-center space-x-4">
+          <button
+            phx-click="new_file"
+            class="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded text-sm"
+          >
+            New File
+          </button>
+          <div class="flex items-center space-x-2">
+            <button
+              phx-click="execute_code"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm"
+            >
+              Execute
+            </button>
+            <button
+              phx-click="play_code"
+              class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={is_nil(@result) or @playing}
+            >
+              Play
+            </button>
+            <button
+              phx-click="stop_playback"
+              class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={not @playing}
+            >
+              Stop
+            </button>
           </div>
         </div>
       </div>
 
-      <div class="px-4 sm:px-6 lg:px-8 py-6">
-        <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          <!-- File Management Panel -->
-          <div class="bg-white rounded-lg shadow p-4">
-            <h3 class="text-lg font-medium text-gray-900 mb-4">Files</h3>
+      <!-- Main Content -->
+      <div class="flex" style={"height: calc(100vh - 60px)"}>
+        <!-- File Browser Sidebar -->
+        <div class="w-64 bg-gray-800 overflow-hidden">
+          <div class="p-4 h-full overflow-y-auto">
+            <h3 class="text-lg font-semibold mb-4">Files</h3>
             
             <!-- Save Section -->
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-gray-700 mb-2">Save As:</label>
+            <div class="mb-6">
+              <label class="block text-sm font-medium text-gray-300 mb-2">Save As:</label>
               <form phx-submit="save_code">
                 <input
                   type="text"
                   name="filename"
                   placeholder="script_name.exs"
                   value={@saved_filename}
-                  class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm mb-2"
+                  class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm mb-2 text-white placeholder-gray-400"
                 />
                 <button
                   type="submit"
-                  class="w-full bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md text-sm font-medium"
+                  class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-sm"
                 >
                   Save
                 </button>
@@ -301,100 +364,76 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
 
             <!-- Load Section -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Load File:</label>
-              <div class="space-y-1 max-h-40 overflow-y-auto">
-                <%= for file <- @available_files do %>
+              <label class="block text-sm font-medium text-gray-300 mb-2">Load File:</label>
+              <div class="space-y-1 overflow-y-auto" style="max-height: calc(100vh - 400px);">
+                <%= for file <- @all_files do %>
                   <button
                     phx-click="load_file"
-                    phx-value-filename={file}
-                    class="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-md"
+                    phx-value-path={file.path}
+                    class="w-full text-left px-2 py-1 text-sm hover:bg-gray-700 rounded flex items-center justify-between"
                   >
-                    <%= file %>
+                    <span class="flex-1 truncate text-white"><%= file.name %></span>
+                    <span class={[
+                      "text-xs px-2 py-0.5 rounded-full ml-2 flex-shrink-0",
+                      if(file.category == "User", do: "bg-blue-600 text-blue-100", else: "bg-green-600 text-green-100")
+                    ]}>
+                      <%= if file.category == "User", do: "user", else: "example" %>
+                    </span>
                   </button>
                 <% end %>
               </div>
             </div>
           </div>
+        </div>
 
+        <!-- Editor Area -->
+        <div class="flex-1 flex flex-col overflow-hidden">
           <!-- Code Editor -->
-          <div class="lg:col-span-4">
-            <div class="bg-white rounded-lg shadow">
-              <div class="p-4 border-b">
-                <div class="flex justify-between items-center">
-                  <h3 class="text-lg font-medium text-gray-900">Code Editor</h3>
-                  <div class="flex space-x-2">
-                    <button
-                      phx-click="execute_code"
-                      class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium"
-                    >
-                      Execute
-                    </button>
-                    <button
-                      phx-click="play_code"
-                      class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={is_nil(@result) or @playing}
-                    >
-                      Play
-                    </button>
-                    <button
-                      phx-click="stop_playback"
-                      class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={not @playing}
-                    >
-                      Stop
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div class="p-4">
-                <LiveMonacoEditor.code_editor
-                  id="strack-code-editor"
-                  value={@code}
-                  change="editor_content_changed"
-                  opts={
-                    Map.merge(
-                      LiveMonacoEditor.default_opts(),
-                      %{
-                        "language" => "elixir",
-                        "theme" => "vs-light",
-                        "minimap" => %{"enabled" => false},
-                        "lineNumbers" => "on",
-                        "automaticLayout" => true
-                      }
-                    )
+          <div class="flex-1 bg-gray-900">
+            <LiveMonacoEditor.code_editor
+              id="strack-code-editor"
+              value={@code}
+              change="editor_content_changed"
+              opts={
+                Map.merge(
+                  LiveMonacoEditor.default_opts(),
+                  %{
+                    "language" => "elixir",
+                    "theme" => "vs-dark",
+                    "minimap" => %{"enabled" => false},
+                    "lineNumbers" => "on",
+                    "automaticLayout" => true
                   }
-                  style="min-height: 600px; width: 100%;"
-                />
-              </div>
-            </div>
+                )
+              }
+              style="height: calc(100vh - 384px); width: 100%;"
+            />
+          </div>
 
-            <!-- Results/Error Display -->
-            <div class="mt-6 bg-white rounded-lg shadow">
-              <div class="p-4 border-b">
-                <h3 class="text-lg font-medium text-gray-900">Results</h3>
-              </div>
-              <div class="p-4">
-                <%= if @error do %>
-                  <div class="bg-red-50 border border-red-200 rounded-md p-3">
-                    <h4 class="text-sm font-medium text-red-800 mb-2">Error:</h4>
-                    <pre class="text-sm text-red-700 whitespace-pre-wrap"><%= @error %></pre>
-                  </div>
-                <% end %>
+          <!-- Results/Error Display -->
+          <div class="bg-gray-800 border-t border-gray-700 overflow-y-auto" style="height: 320px;">
+            <div class="p-4">
+              <h3 class="text-lg font-medium text-white mb-3">Results</h3>
+              
+              <%= if @error do %>
+                <div class="bg-red-900/50 border border-red-700 rounded-md p-3">
+                  <h4 class="text-sm font-medium text-red-300 mb-2">Error:</h4>
+                  <pre class="text-sm text-red-200 whitespace-pre-wrap"><%= @error %></pre>
+                </div>
+              <% end %>
 
-                <%= if @result do %>
-                  <div class="bg-green-50 border border-green-200 rounded-md p-3">
-                    <h4 class="text-sm font-medium text-green-800 mb-2">STrack Map:</h4>
-                    <pre class="text-sm text-green-700 whitespace-pre-wrap"><%= inspect(@result, pretty: true) %></pre>
-                  </div>
-                <% end %>
+              <%= if @result do %>
+                <div class="bg-green-900/50 border border-green-700 rounded-md p-3">
+                  <h4 class="text-sm font-medium text-green-300 mb-2">STrack Map:</h4>
+                  <pre class="text-sm text-green-200 whitespace-pre-wrap"><%= inspect(@result, pretty: true) %></pre>
+                </div>
+              <% end %>
 
-                <%= if is_nil(@result) and is_nil(@error) do %>
-                  <div class="text-gray-500 text-sm">
-                    Execute code to see results here.
-                  </div>
-                <% end %>
-              </div>
+              <%= if is_nil(@result) and is_nil(@error) do %>
+                <div class="text-gray-400 text-sm">
+                  Execute code to see results here.
+                </div>
+              <% end %>
             </div>
           </div>
         </div>
