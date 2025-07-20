@@ -25,13 +25,8 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
     {:ok, socket}
   end
 
-  def handle_event("code-editor-lost-focus", %{"value" => value}, socket) do
-    IO.puts("Code editor lost focus with value: #{inspect(value)}")
-    {:noreply, assign(socket, :code, value)}
-  end
-  
-  def handle_event("code-editor-change", %{"value" => value}, socket) do
-    IO.puts("Code editor changed with value: #{inspect(value)}")
+  def handle_event("editor_content_changed", %{"value" => value}, socket) do
+    IO.puts("Editor content changed: #{inspect(String.length(value))} characters")
     {:noreply, assign(socket, :code, value)}
   end
 
@@ -222,21 +217,15 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
     {:noreply, socket}
   end
 
-  defp stop_strack_playback(pid) do
-    try do
-      # Follow the same pattern as SynthManager :stop_synth
-      # Stop the synth using group_free (as seen in the SynthManager)
-      ScClient.group_free(1)
-      if !is_nil(pid) do
-        MidiPlayer.stop(pid)
-      end
-      MidiInClient.stop_midi()
-      IO.puts("Playback stopped successfully")
-      :ok
-    rescue
-      e ->
-        IO.puts("Error stopping playback: #{Exception.message(e)}")
-        {:error, Exception.message(e)}
+  defp stop_strack_playback(_pid) do
+    # Use the exact same pattern as SynthManager which works without timeout
+    case ModsynthGuiPhx.SynthManager.stop_synth() do
+      {:ok, message} ->
+        IO.puts("Playback stopped successfully: #{message}")
+        :ok
+      {:error, reason} ->
+        IO.puts("Error stopping playback: #{reason}")
+        {:error, reason}
     end
   end
 
@@ -284,8 +273,8 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
         </div>
       </div>
 
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <div class="px-4 sm:px-6 lg:px-8 py-6">
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
           <!-- File Management Panel -->
           <div class="bg-white rounded-lg shadow p-4">
             <h3 class="text-lg font-medium text-gray-900 mb-4">Files</h3>
@@ -328,7 +317,7 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
           </div>
 
           <!-- Code Editor -->
-          <div class="lg:col-span-3">
+          <div class="lg:col-span-4">
             <div class="bg-white rounded-lg shadow">
               <div class="p-4 border-b">
                 <div class="flex justify-between items-center">
@@ -362,6 +351,7 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
                 <LiveMonacoEditor.code_editor
                   id="strack-code-editor"
                   value={@code}
+                  change="editor_content_changed"
                   opts={
                     Map.merge(
                       LiveMonacoEditor.default_opts(),
@@ -374,7 +364,7 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
                       }
                     )
                   }
-                  style="min-height: 400px; width: 100%;"
+                  style="min-height: 600px; width: 100%;"
                 />
               </div>
             </div>
