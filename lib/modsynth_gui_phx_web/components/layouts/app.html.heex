@@ -1,5 +1,5 @@
-<!-- Check if we're on the synth editor page based on the @inner_content -->
-<%= if String.contains?(inspect(@inner_content), "synth-canvas") do %>
+<!-- Check if we're on the synth editor or STrack code editor page based on the @inner_content -->
+<%= if String.contains?(inspect(@inner_content), "synth-canvas") or String.contains?(inspect(@inner_content), "strack-code-editor") do %>
   <!-- Fullscreen layout for synth editor -->
   <.flash_group flash={@flash} />
   {@inner_content}
