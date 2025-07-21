@@ -239,13 +239,23 @@ defmodule ModsynthGuiPhx.SynthManager do
                                                               virtual_conn: virtual_conn,
                                                               available_node_types: synths} = state) do
     try do
+      # Ensure virtual connection exists (create if needed)
+      virtual_conn = case virtual_conn do
+        nil ->
+          Logger.info("Creating virtual MIDI connection for MIDI file playback")
+          Midiex.create_virtual_output("virtual")
+        existing_conn ->
+          Logger.info("Reusing existing virtual MIDI connection")
+          existing_conn
+      end
+
       # Use Modsynth.play with virtual device
       Modsynth.specs_to_data(synths, synth.data)
       |> Modsynth.play("virtual")
 
       pid = MidiPlayer.play(midi_file_path, synth: virtual_conn)
       MidiPlayer.notify_when_play_done(pid)
-      new_state = %{state | synth_running: true, midi_player_pid: pid}
+      new_state = %{state | synth_running: true, midi_player_pid: pid, virtual_conn: virtual_conn}
       {:reply, {:ok, "Synth started with MIDI file: #{midi_file_path}"}, new_state}
     catch
       error ->
@@ -271,14 +281,24 @@ defmodule ModsynthGuiPhx.SynthManager do
 
   def handle_call({:play_midi_file_with_current_data, midi_file_path, current_synth_data}, _from, %{virtual_conn: virtual_conn, available_node_types: synths} = state) do
     try do
+      # Ensure virtual connection exists (create if needed)
+      virtual_conn = case virtual_conn do
+        nil ->
+          Logger.info("Creating virtual MIDI connection for STrack playback")
+          Midiex.create_virtual_output("virtual")
+        existing_conn ->
+          Logger.info("Reusing existing virtual MIDI connection")
+          existing_conn
+      end
+
       # Use current synth data instead of stored data
       {input_control_list, _node_map, connection_list} = Modsynth.specs_to_data(synths, current_synth_data)
       |> Modsynth.play("virtual")
 
       pid = MidiPlayer.play(midi_file_path, synth: virtual_conn)
       MidiPlayer.notify_when_play_done(pid)
-      new_state = %{state | synth_running: true, midi_player_pid: pid}
-      {:reply, {:ok, {"Synth started with MIDI file: #{midi_file_path}", input_control_list, connection_list}}, new_state}
+      new_state = %{state | synth_running: true, midi_player_pid: pid, virtual_conn: virtual_conn}
+      {:reply, {:ok, {"Synth started with STrack data", input_control_list, connection_list}}, new_state}
     catch
       error ->
         Logger.error("Error playing MIDI file #{midi_file_path}: #{inspect(error)}")
@@ -304,7 +324,9 @@ defmodule ModsynthGuiPhx.SynthManager do
   def handle_info(:midi_play_done, state) do
     ScClient.group_free(1)
     MidiInClient.stop_midi()
-    {:noreply, state}
+    # Update state to reflect that synth is no longer running but preserve synth data
+    new_state = %{state | synth_running: false, midi_player_pid: nil}
+    {:noreply, new_state}
   end
 
 end

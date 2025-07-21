@@ -46,11 +46,11 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
         {:noreply, put_flash(socket, :error, "No STrack map to play. Execute code first.")}
       result ->
         case play_strack_map_with_current_synth(result) do
-          {:ok, pid} ->
+          {:ok, _} ->
             socket =
               socket
               |> assign(:playing, true)
-              |> assign(:midi_player_pid, pid)
+              |> assign(:midi_player_pid, :managed_by_synth_manager)
               |> put_flash(:info, "Playing STrack map...")
             {:noreply, socket}
           {:error, error} ->
@@ -168,35 +168,22 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
 
   defp play_strack_map_with_current_synth(strack_map) do
     try do
-      # Get the current synth data from the main editor (like MIDI file playback does)
+      # Get the current synth data from the main editor
       case ModsynthGuiPhx.SynthManager.get_current_synth_data() do
         {:ok, current_synth} ->
           IO.puts("Got current synth data from main editor")
           
-          # Create virtual output port
-          port_name = "modsynth"
-          IO.puts("Creating virtual output port: #{port_name}")
-          port = Midiex.create_virtual_output(port_name)
-          
-          # Get available node types (like in SynthManager)
-          available_node_types = Modsynth.init()
-          
-          # Use the exact same pattern as SynthManager play_midi_file_with_current_data
-          IO.puts("Calling Modsynth.specs_to_data and Modsynth.play with current synth data")
-          {_input_control_list, _node_map, _connection_list} = Modsynth.specs_to_data(available_node_types, current_synth.data)
-          |> Modsynth.play(port_name)
-          
-          # Play the STrack map through the loaded synth network
-          IO.puts("Calling MidiPlayer.play with strack_map: #{inspect(strack_map)}")
-          pid = MidiPlayer.play(strack_map, synth: port)
-          
-          # Set up notification for when playback is done (like in SynthManager)
-          MidiPlayer.notify_when_play_done(pid)
-          
-          # Don't wait for completion in the LiveView process
-          # The audio will play in the background
-          IO.puts("Play completed successfully")
-          {:ok, pid}
+          # Use SynthManager's play_midi_file_with_current_data function
+          # This ensures proper synth lifecycle management and state consistency
+          case ModsynthGuiPhx.SynthManager.play_midi_file_with_current_data(strack_map, current_synth.data) do
+            {:ok, {message, _input_control_list, _connection_list}} ->
+              IO.puts("STrack playback started successfully: #{message}")
+              # Return success - SynthManager handles the MIDI player PID internally
+              {:ok, :managed_by_synth_manager}
+            {:error, error} ->
+              IO.puts("Error starting STrack playback: #{error}")
+              {:error, error}
+          end
           
         {:error, error} ->
           IO.puts("No synth loaded in main editor: #{error}")
@@ -211,9 +198,8 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
   end
 
   def handle_info(:midi_play_done, socket) do
-    # Handle when playback naturally finishes (like in SynthManager)
-    ScClient.group_free(1)
-    MidiInClient.stop_midi()
+    # Handle when playback naturally finishes
+    # SynthManager handles all synth lifecycle management
     
     socket =
       socket
