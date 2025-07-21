@@ -4,19 +4,33 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
 
   require Logger
 
-  @impl true
-  def mount(_params, _session, socket) do
+  @impl true  
+  def mount(params, _session, socket) do
+    # Determine which tab to show based on route
+    active_tab = case params do
+      %{"tab" => "strack"} -> :strack_editor
+      _ -> :synth_editor  # Default to synth editor
+    end
+    
+    # Load synth editor data
     {user_files, example_files} = FileManager.list_synth_files()
-
     Logger.info("LiveView mount - User files: #{inspect(user_files)}")
     Logger.debug("LiveView mount - Example files: #{inspect(example_files)}")
-
+    
     # Combine and sort all files alphabetically by name (mixed categories)
     all_files = (user_files ++ example_files)
                 |> Enum.sort_by(fn file -> file.name end)
 
+    # Load STrack editor data
+    scripts_dir = Path.expand("~/.modsynth/strack_scripts")
+    File.mkdir_p!(scripts_dir)
+
     socket =
       socket
+      # Tab management
+      |> assign(:active_tab, active_tab)
+      
+      # Synth Editor state (preserve existing state)
       |> assign(:user_files, user_files)
       |> assign(:example_files, example_files)
       |> assign(:all_files, all_files)
@@ -44,8 +58,72 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       |> assign(:node_config_modal, %{visible: false, node_type: nil, svg_x: 0, svg_y: 0})
       |> assign(:bus_value_display, false)
       |> assign(:connection_values, %{})
+      
+      # STrack Editor state (new)
+      |> assign(:strack_code, "")
+      |> assign(:strack_result, nil)
+      |> assign(:strack_error, nil)
+      |> assign(:strack_saved_filename, nil)
+      |> assign(:strack_playing, false)
+      |> assign(:strack_midi_player_pid, nil)
+      |> assign(:scripts_dir, scripts_dir)
+      |> assign(:strack_all_files, list_all_strack_files(scripts_dir))
+      |> assign(:example_stracks_dir, Path.expand("./example_stracks"))
+
+    # Try to restore synth data if it exists in SynthManager
+    socket = restore_synth_data_if_available(socket)
 
     {:ok, socket}
+  end
+
+  # Helper functions for STrack editor functionality
+  defp list_all_strack_files(scripts_dir) do
+    user_files = list_strack_files_in_dir(scripts_dir, "User Scripts")
+    example_files = case File.ls("./example_stracks") do
+      {:ok, files} ->
+        list_strack_files_in_dir("./example_stracks", "Example Scripts")
+      _ ->
+        []
+    end
+    user_files ++ example_files
+  end
+
+  defp list_strack_files_in_dir(dir, category) do
+    case File.ls(dir) do
+      {:ok, files} ->
+        files
+        |> Enum.filter(&String.ends_with?(&1, ".exs"))
+        |> Enum.map(fn filename ->
+          %{
+            name: String.replace_suffix(filename, ".exs", ""),
+            path: Path.join(dir, filename),
+            category: category
+          }
+        end)
+      {:error, _} ->
+        []
+    end
+  end
+
+  defp ensure_exs_extension(filename) do
+    if String.ends_with?(filename, ".exs") do
+      filename
+    else
+      filename <> ".exs"
+    end
+  end
+  
+  defp restore_synth_data_if_available(socket) do
+    case ModsynthGuiPhx.SynthManager.get_current_synth_data() do
+      {:ok, current_synth} ->
+        socket
+        |> assign(:nodes, current_synth.nodes || [])
+        |> assign(:connections, current_synth.connections || [])
+        |> assign(:current_synth, current_synth)
+        |> assign(:current_filename, current_synth.filename || nil)
+      {:error, _} ->
+        socket
+    end
   end
 
   @impl true
@@ -978,21 +1056,207 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     end
   end
 
+  # Tab switching events  
+  def handle_event("switch_to_synth_editor", _params, socket) do
+    {:noreply, assign(socket, :active_tab, :synth_editor)}
+  end
+  
+  def handle_event("switch_to_strack_editor", _params, socket) do
+    {:noreply, assign(socket, :active_tab, :strack_editor)}
+  end
+  
+  # STrack Editor events (when on strack tab)
+  def handle_event("strack_editor_content_changed", %{"value" => value}, socket) do
+    {:noreply, assign(socket, :strack_code, value)}
+  end
+
+  def handle_event("strack_execute_code", _params, socket) do
+    case execute_strack_code(socket.assigns.strack_code) do
+      {:ok, result} ->
+        {:noreply, assign(socket, strack_result: result, strack_error: nil)}
+      {:error, error} ->
+        {:noreply, assign(socket, strack_result: nil, strack_error: error)}
+    end
+  end
+
+  def handle_event("strack_play_code", _params, socket) do
+    case socket.assigns.strack_result do
+      nil ->
+        {:noreply, put_flash(socket, :error, "No STrack map to play. Execute code first.")}
+      result ->
+        case play_strack_map_with_current_synth(result) do
+          {:ok, _} ->
+            socket =
+              socket
+              |> assign(:strack_playing, true)
+              |> assign(:strack_midi_player_pid, :managed_by_synth_manager)
+              |> put_flash(:info, "Playing STrack map...")
+            {:noreply, socket}
+          {:error, error} ->
+            {:noreply, put_flash(socket, :error, "Failed to play: #{error}")}
+        end
+    end
+  end
+
+  def handle_event("strack_stop_playback", _params, socket) do
+    case stop_strack_playback(socket.assigns.strack_midi_player_pid) do
+      :ok ->
+        socket =
+          socket
+          |> assign(:strack_playing, false)
+          |> assign(:strack_midi_player_pid, nil)
+          |> put_flash(:info, "Playback stopped")
+        {:noreply, socket}
+      {:error, error} ->
+        {:noreply, put_flash(socket, :error, "Failed to stop playback: #{error}")}
+    end
+  end
+
+  def handle_event("strack_save_code", %{"filename" => filename}, socket) do
+    full_path = Path.join(socket.assigns.scripts_dir, ensure_exs_extension(filename))
+    
+    case File.write(full_path, socket.assigns.strack_code) do
+      :ok ->
+        socket =
+          socket
+          |> assign(:strack_saved_filename, filename)
+          |> assign(:strack_all_files, list_all_strack_files(socket.assigns.scripts_dir))
+          |> put_flash(:info, "Code saved as #{filename}")
+        {:noreply, socket}
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to save: #{inspect(reason)}")}
+    end
+  end
+
+  def handle_event("strack_load_file", %{"path" => filepath}, socket) do
+    case File.read(filepath) do
+      {:ok, content} ->
+        filename = Path.basename(filepath, ".exs")
+        socket =
+          socket
+          |> assign(:strack_code, content)
+          |> assign(:strack_saved_filename, filename)
+          |> assign(:strack_result, nil)
+          |> assign(:strack_error, nil)
+          |> put_flash(:info, "Loaded #{filename}")
+        
+        # Explicitly push the loaded content to Monaco Editor
+        socket = LiveMonacoEditor.set_value(socket, content)
+        {:noreply, socket}
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to load file: #{inspect(reason)}")}
+    end
+  end
+
+  def handle_event("strack_new_file", _params, socket) do
+    socket =
+      socket
+      |> assign(:strack_code, "")
+      |> assign(:strack_saved_filename, nil)
+      |> assign(:strack_result, nil)
+      |> assign(:strack_error, nil)
+      |> put_flash(:info, "New file created")
+    
+    # Explicitly clear the Monaco Editor
+    socket = LiveMonacoEditor.set_value(socket, "")
+    {:noreply, socket}
+  end
+
+  # Handle MIDI playback completion for STrack
+  def handle_info(:midi_play_done, socket) do
+    socket =
+      socket
+      |> assign(:strack_playing, false)
+      |> assign(:strack_midi_player_pid, nil)
+      |> put_flash(:info, "Playback finished")
+    {:noreply, socket}
+  end
+
+  # STrack helper functions (copied from STrackCodeEditorLive)
+  defp execute_strack_code(code) do
+    try do
+      case Code.eval_string(code) do
+        {result, _} ->
+          case validate_strack_map(result) do
+            {:ok, validated_result} -> {:ok, validated_result}
+            {:error, reason} -> {:error, reason}
+          end
+        error ->
+          {:error, "Evaluation failed: #{inspect(error)}"}
+      end
+    rescue
+      e ->
+        {:error, Exception.message(e)}
+    end
+  end
+
+  defp validate_strack_map(result) when is_map(result) do
+    if Enum.all?(Map.values(result), &is_strack?/1) do
+      {:ok, result}
+    else
+      {:error, "All map values must be STrack structs"}
+    end
+  end
+  defp validate_strack_map(_), do: {:error, "Result must be a map"}
+
+  defp is_strack?(%STrack{}), do: true
+  defp is_strack?(_), do: false
+
+  defp play_strack_map_with_current_synth(strack_map) do
+    try do
+      case ModsynthGuiPhx.SynthManager.get_current_synth_data() do
+        {:ok, current_synth} ->
+          case ModsynthGuiPhx.SynthManager.play_midi_file_with_current_data(strack_map, current_synth.data) do
+            {:ok, {_message, _input_control_list, _connection_list}} ->
+              {:ok, :managed_by_synth_manager}
+            {:error, error} ->
+              {:error, error}
+          end
+        {:error, error} ->
+          {:error, "No synth loaded in main editor. Please load a synth file first."}
+      end
+    rescue
+      e ->
+        {:error, Exception.message(e)}
+    end
+  end
+
+  defp stop_strack_playback(_pid) do
+    case ModsynthGuiPhx.SynthManager.stop_synth() do
+      {:ok, _message} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   @impl true
   @spec render(any()) :: Phoenix.LiveView.Rendered.t()
   def render(assigns) do
     ~H"""
-    <div id="main-container" class="h-screen bg-gray-900 text-white overflow-hidden" phx-hook="ViewportResize">
+    <div id="main-container" class="synth-canvas h-screen bg-gray-900 text-white overflow-hidden" phx-hook="ViewportResize">
       <!-- Header -->
       <div class="bg-gray-800 p-2 flex items-center justify-between border-b border-gray-700">
         <div class="flex items-center space-x-4">
-          <h1 class="text-xl font-bold">Modular Synthesizer Editor</h1>
-          <.link
-            navigate="/strack_code_editor"
-            class="text-blue-400 hover:text-blue-300 text-sm font-medium"
-          >
-            STrack Code Editor
-          </.link>
+          <!-- Tab Navigation -->
+          <div class="flex space-x-2">
+            <button
+              phx-click="switch_to_synth_editor"
+              class={[
+                "px-4 py-2 rounded-lg font-medium transition-colors text-sm",
+                if(@active_tab == :synth_editor, do: "bg-blue-600 text-white", else: "bg-gray-700 hover:bg-gray-600 text-gray-300")
+              ]}
+            >
+              Synth Editor
+            </button>
+            <button
+              phx-click="switch_to_strack_editor"
+              class={[
+                "px-4 py-2 rounded-lg font-medium transition-colors text-sm",
+                if(@active_tab == :strack_editor, do: "bg-green-600 text-white", else: "bg-gray-700 hover:bg-gray-600 text-gray-300")
+              ]}
+            >
+              STrack Editor
+            </button>
+          </div>
           <%= if @current_filename do %>
             <div class="flex items-center space-x-2 px-3 py-1 bg-blue-600 rounded-full">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1206,7 +1470,9 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       </div>
 
       <!-- Main Content -->
-      <div class="flex" style={"height: calc(100vh - 60px)"}>
+      <%= if @active_tab == :synth_editor do %>
+        <!-- Synth Editor Content -->
+        <div class="flex" style={"height: calc(100vh - 60px)"}>
         <!-- File Browser Sidebar -->
         <div class={["transition-all duration-300 bg-gray-800 overflow-hidden", if(@show_file_browser, do: "w-64", else: "w-0")]}>
           <div class="p-4 h-full overflow-y-auto">
@@ -1581,6 +1847,141 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      <% end %>
+      <% else %>
+        <!-- STrack Code Editor Content -->
+        <div class="strack-code-editor flex" style={"height: calc(100vh - 60px)"}>
+          <!-- File Browser Sidebar -->
+          <div class="w-64 bg-gray-800 overflow-hidden">
+            <div class="p-4 h-full overflow-y-auto">
+              <h3 class="text-lg font-semibold mb-4">STrack Files</h3>
+              
+              <!-- Save Section -->
+              <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-300 mb-2">Save As:</label>
+                <form phx-submit="strack_save_code">
+                  <input
+                    type="text"
+                    name="filename"
+                    value={@strack_saved_filename || ""}
+                    placeholder="Enter filename..."
+                    class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
+                  />
+                  <button
+                    type="submit"
+                    class="w-full mt-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white font-medium"
+                  >
+                    Save
+                  </button>
+                </form>
+              </div>
+              
+              <!-- File List -->
+              <div class="space-y-1 overflow-y-auto" style="max-height: calc(100vh - 300px);">
+                <%= for file <- @strack_all_files do %>
+                  <button
+                    phx-click="strack_load_file"
+                    phx-value-path={file.path}
+                    class="w-full text-left p-2 rounded hover:bg-gray-700 transition-colors group"
+                  >
+                    <div class="flex items-center justify-between">
+                      <div class="text-sm text-white">
+                        <%= file.name %>
+                      </div>
+                      <div class={[
+                        "px-2 py-1 text-xs rounded-full",
+                        if(file.category == "User Scripts", do: "bg-blue-600 text-blue-100", else: "bg-green-600 text-green-100")
+                      ]}>
+                        <%= if file.category == "User Scripts", do: "User", else: "Example" %>
+                      </div>
+                    </div>
+                  </button>
+                <% end %>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Editor Area -->
+          <div class="flex-1 flex flex-col">
+            <!-- STrack Controls -->
+            <div class="bg-gray-800 border-b border-gray-700 p-4">
+              <div class="flex items-center justify-between mb-4">
+                <%= if @strack_playing do %>
+                  <div class="flex items-center space-x-2 text-green-400">
+                    <div class="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+                    <span class="text-sm font-medium">Playing STrack</span>
+                  </div>
+                <% end %>
+              </div>
+
+              <div class="flex items-center space-x-4">
+                <button
+                  phx-click="strack_new_file"
+                  class="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded text-sm"
+                >
+                  New File
+                </button>
+                <div class="flex items-center space-x-2">
+                  <button
+                    phx-click="strack_execute_code"
+                    class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm"
+                  >
+                    Execute
+                  </button>
+                  <button
+                    phx-click="strack_play_code"
+                    class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={is_nil(@strack_result) or @strack_playing}
+                  >
+                    Play
+                  </button>
+                  <button
+                    phx-click="strack_stop_playback"
+                    class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={not @strack_playing}
+                  >
+                    Stop
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Monaco Editor -->
+            <div class="flex-1 relative">
+              <LiveMonacoEditor.code_editor
+                id="strack-monaco-editor"
+                value={@strack_code}
+                change="strack_editor_content_changed"
+                opts={Map.merge(
+                  LiveMonacoEditor.default_opts(),
+                  %{
+                    "language" => "elixir",
+                    "theme" => "vs-dark",
+                    "fontSize" => 14,
+                    "minimap" => %{"enabled" => false},
+                    "automaticLayout" => true
+                  }
+                )}
+              />
+            </div>
+            
+            <!-- Results Area -->
+            <%= if @strack_result || @strack_error do %>
+              <div class="bg-gray-800 border-t border-gray-700 p-4 max-h-32 overflow-y-auto">
+                <%= if @strack_error do %>
+                  <div class="text-red-400 font-mono text-sm whitespace-pre-wrap">
+                    Error: <%= @strack_error %>
+                  </div>
+                <% end %>
+                <%= if @strack_result do %>
+                  <div class="text-green-400 font-mono text-sm">
+                    <strong>Result:</strong> STrack map with <%= map_size(@strack_result) %> track(s)
+                  </div>
+                <% end %>
+              </div>
+            <% end %>
           </div>
         </div>
       <% end %>

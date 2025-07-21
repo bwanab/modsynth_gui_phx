@@ -18,8 +18,11 @@ defmodule ModsynthGuiPhxWeb.Router do
     pipe_through :browser
 
     live "/", SynthEditorLive, :index
+    live "/editor", SynthEditorLive, :index
+    live "/editor/:tab", SynthEditorLive, :show
+    # Keep old routes for backward compatibility during transition
     live "/synth_editor", SynthEditorLive, :index
-    live "/strack_code_editor", STrackCodeEditorLive, :index
+    live "/strack_code_editor", SynthEditorLive, :strack
     get "/home", PageController, :home
   end
 
