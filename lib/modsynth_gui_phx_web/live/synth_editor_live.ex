@@ -59,7 +59,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       |> assign(:bus_value_display, false)
       |> assign(:connection_values, %{})
       
-      # STrack Editor state (new)
+      # Script Editor state (new)
       |> assign(:strack_code, "")
       |> assign(:strack_result, nil)
       |> assign(:strack_error, nil)
@@ -76,7 +76,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     {:ok, socket}
   end
 
-  # Helper functions for STrack editor functionality
+  # Helper functions for Script editor functionality
   defp list_all_strack_files(scripts_dir) do
     user_files = list_strack_files_in_dir(scripts_dir, "User Scripts")
     example_files = case File.ls("./example_stracks") do
@@ -1065,51 +1065,67 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     {:noreply, assign(socket, :active_tab, :strack_editor)}
   end
   
-  # STrack Editor events (when on strack tab)
-  def handle_event("strack_editor_content_changed", %{"value" => value}, socket) do
-    {:noreply, assign(socket, :strack_code, value)}
+  # Play menu events
+  def handle_event("toggle_play_menu", _params, socket) do
+    # Load MIDI ports if not already loaded
+    {midi_ports, port_map} = case ModsynthGuiPhx.SynthManager.get_midi_ports() do
+      {:ok, {ports, map}} -> {ports, map}
+      {:error, _} -> {[], %{}}
+    end
+    
+    new_play_menu = %{
+      visible: !socket.assigns.play_menu.visible,
+      midi_ports: midi_ports,
+      port_map: port_map,
+      selected_port: socket.assigns.play_menu.selected_port
+    }
+    
+    {:noreply, assign(socket, :play_menu, new_play_menu)}
   end
-
-  def handle_event("strack_execute_code", _params, socket) do
+  
+  def handle_event("play_script", _params, socket) do
+    # Hide the play menu
+    socket = assign(socket, :play_menu, Map.put(socket.assigns.play_menu, :visible, false))
+    
+    # Auto-compile and play the script
     case execute_strack_code(socket.assigns.strack_code) do
       {:ok, result} ->
-        {:noreply, assign(socket, strack_result: result, strack_error: nil)}
-      {:error, error} ->
-        {:noreply, assign(socket, strack_result: nil, strack_error: error)}
-    end
-  end
-
-  def handle_event("strack_play_code", _params, socket) do
-    case socket.assigns.strack_result do
-      nil ->
-        {:noreply, put_flash(socket, :error, "No STrack map to play. Execute code first.")}
-      result ->
-        case play_strack_map_with_current_synth(result) do
+        case play_strack_map_with_current_synth(result, socket) do
           {:ok, _} ->
             socket =
               socket
               |> assign(:strack_playing, true)
-              |> assign(:strack_midi_player_pid, :managed_by_synth_manager)
-              |> put_flash(:info, "Playing STrack map...")
+              |> assign(:strack_result, result)
+              |> assign(:strack_error, nil)
+              |> put_flash(:info, "Playing script...")
             {:noreply, socket}
           {:error, error} ->
-            {:noreply, put_flash(socket, :error, "Failed to play: #{error}")}
+            {:noreply, put_flash(socket, :error, "Failed to play script: #{error}")}
         end
+      {:error, error} ->
+        {:noreply, put_flash(socket, :error, "Script compilation error: #{error}")}
     end
   end
-
-  def handle_event("strack_stop_playback", _params, socket) do
-    case stop_strack_playback(socket.assigns.strack_midi_player_pid) do
-      :ok ->
+  
+  def handle_event("stop_playback", _params, socket) do
+    # Stop both synth and script playback
+    case ModsynthGuiPhx.SynthManager.stop_synth() do
+      {:ok, _message} ->
         socket =
           socket
+          |> assign(:mode, :edit)
           |> assign(:strack_playing, false)
           |> assign(:strack_midi_player_pid, nil)
           |> put_flash(:info, "Playback stopped")
         {:noreply, socket}
-      {:error, error} ->
-        {:noreply, put_flash(socket, :error, "Failed to stop playback: #{error}")}
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to stop playback: #{reason}")}
     end
+  end
+  
+  # Script Editor events
+  def handle_event("strack_editor_content_changed", %{"value" => value}, socket) do
+    {:noreply, assign(socket, :strack_code, value)}
   end
 
   def handle_event("strack_save_code", %{"filename" => filename}, socket) do
@@ -1202,18 +1218,16 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
   defp is_strack?(%STrack{}), do: true
   defp is_strack?(_), do: false
 
-  defp play_strack_map_with_current_synth(strack_map) do
+  defp play_strack_map_with_current_synth(strack_map, socket) do
     try do
-      case ModsynthGuiPhx.SynthManager.get_current_synth_data() do
-        {:ok, current_synth} ->
-          case ModsynthGuiPhx.SynthManager.play_midi_file_with_current_data(strack_map, current_synth.data) do
-            {:ok, {_message, _input_control_list, _connection_list}} ->
-              {:ok, :managed_by_synth_manager}
-            {:error, error} ->
-              {:error, error}
-          end
+      # Use current synth data from LiveView state (like MIDI file playback does)
+      current_synth_data = create_current_synth_data(socket)
+      
+      case ModsynthGuiPhx.SynthManager.play_midi_file_with_current_data(strack_map, current_synth_data) do
+        {:ok, {_message, _input_control_list, _connection_list}} ->
+          {:ok, :managed_by_synth_manager}
         {:error, error} ->
-          {:error, "No synth loaded in main editor. Please load a synth file first."}
+          {:error, error}
       end
     rescue
       e ->
@@ -1254,7 +1268,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
                 if(@active_tab == :strack_editor, do: "bg-green-600 text-white", else: "bg-gray-700 hover:bg-gray-600 text-gray-300")
               ]}
             >
-              STrack Editor
+              Script Editor
             </button>
           </div>
           <%= if @current_filename do %>
@@ -1324,7 +1338,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
               <button
                 phx-click="show_play_menu"
                 class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-sm flex items-center space-x-1"
-                disabled={@current_synth == nil}
+                disabled={@current_synth == nil and (is_nil(@strack_code) or String.trim(@strack_code) == "")}
               >
                 <span>Play</span>
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1345,6 +1359,24 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
                     </div>
 
                     <div class="space-y-3">
+                      <!-- Play Script Option -->
+                      <div>
+                        <button
+                          phx-click="play_script"
+                          class={[
+                            "w-full px-4 py-2 text-sm rounded-md",
+                            if(is_nil(@strack_code) or String.trim(@strack_code) == "", 
+                               do: "bg-gray-300 text-gray-500 cursor-not-allowed", 
+                               else: "bg-orange-600 hover:bg-orange-700 text-white cursor-pointer")
+                          ]}
+                          disabled={is_nil(@strack_code) or String.trim(@strack_code) == ""}
+                        >
+                          Play Script
+                        </button>
+                      </div>
+                      
+                      <hr class="border-gray-300" />
+                      
                       <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">Play with Device</label>
                         <div class="flex space-x-2">
@@ -1419,9 +1451,9 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
             </div>
 
             <button
-              phx-click="stop_synth"
+              phx-click="stop_playback"
               class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-sm"
-              disabled={@current_synth == nil}
+              disabled={@current_synth == nil and not @strack_playing}
             >
               Stop
             </button>
@@ -1851,12 +1883,12 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
         </div>
       <% end %>
       <% else %>
-        <!-- STrack Code Editor Content -->
+        <!-- Script Editor Content -->
         <div class="strack-code-editor flex" style={"height: calc(100vh - 60px)"}>
           <!-- File Browser Sidebar -->
           <div class="w-64 bg-gray-800 overflow-hidden">
             <div class="p-4 h-full overflow-y-auto">
-              <h3 class="text-lg font-semibold mb-4">STrack Files</h3>
+              <h3 class="text-lg font-semibold mb-4">Script Files</h3>
               
               <!-- Save Section -->
               <div class="mb-6">
@@ -1905,17 +1937,8 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           
           <!-- Editor Area -->
           <div class="flex-1 flex flex-col">
-            <!-- STrack Controls -->
+            <!-- Script Controls -->
             <div class="bg-gray-800 border-b border-gray-700 p-4">
-              <div class="flex items-center justify-between mb-4">
-                <%= if @strack_playing do %>
-                  <div class="flex items-center space-x-2 text-green-400">
-                    <div class="w-2 h-2 bg-white rounded-full animate-pulse"></div>
-                    <span class="text-sm font-medium">Playing STrack</span>
-                  </div>
-                <% end %>
-              </div>
-
               <div class="flex items-center space-x-4">
                 <button
                   phx-click="strack_new_file"
@@ -1923,28 +1946,6 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
                 >
                   New File
                 </button>
-                <div class="flex items-center space-x-2">
-                  <button
-                    phx-click="strack_execute_code"
-                    class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm"
-                  >
-                    Execute
-                  </button>
-                  <button
-                    phx-click="strack_play_code"
-                    class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={is_nil(@strack_result) or @strack_playing}
-                  >
-                    Play
-                  </button>
-                  <button
-                    phx-click="strack_stop_playback"
-                    class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={not @strack_playing}
-                  >
-                    Stop
-                  </button>
-                </div>
               </div>
             </div>
             
@@ -1966,22 +1967,6 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
                 )}
               />
             </div>
-            
-            <!-- Results Area -->
-            <%= if @strack_result || @strack_error do %>
-              <div class="bg-gray-800 border-t border-gray-700 p-4 max-h-32 overflow-y-auto">
-                <%= if @strack_error do %>
-                  <div class="text-red-400 font-mono text-sm whitespace-pre-wrap">
-                    Error: <%= @strack_error %>
-                  </div>
-                <% end %>
-                <%= if @strack_result do %>
-                  <div class="text-green-400 font-mono text-sm">
-                    <strong>Result:</strong> STrack map with <%= map_size(@strack_result) %> track(s)
-                  </div>
-                <% end %>
-              </div>
-            <% end %>
           </div>
         </div>
       <% end %>
