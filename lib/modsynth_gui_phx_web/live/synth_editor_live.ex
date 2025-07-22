@@ -1091,13 +1091,22 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     case execute_strack_code(socket.assigns.strack_code) do
       {:ok, result} ->
         case play_strack_map_with_current_synth(result, socket) do
-          {:ok, _} ->
+          {:ok, {message, input_control_list, connection_list}} ->
             socket =
               socket
               |> assign(:strack_playing, true)
               |> assign(:strack_result, result)
               |> assign(:strack_error, nil)
-              |> put_flash(:info, "Playing script...")
+              |> assign(:mode, :run)
+              |> assign(:input_control_list, input_control_list)
+              |> assign(:connection_list, connection_list)
+              |> put_flash(:info, message)
+            
+            # Start polling for bus values if display is enabled
+            if socket.assigns.bus_value_display do
+              send(self(), :fetch_connection_values)
+            end
+            
             {:noreply, socket}
           {:error, error} ->
             {:noreply, put_flash(socket, :error, "Failed to play script: #{error}")}
@@ -1116,6 +1125,8 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           |> assign(:mode, :edit)
           |> assign(:strack_playing, false)
           |> assign(:strack_midi_player_pid, nil)
+          |> assign(:bus_value_display, false)
+          |> assign(:connection_values, %{})
           |> put_flash(:info, "Playback stopped")
         {:noreply, socket}
       {:error, reason} ->
@@ -1224,8 +1235,8 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       current_synth_data = create_current_synth_data(socket)
       
       case ModsynthGuiPhx.SynthManager.play_midi_file_with_current_data(strack_map, current_synth_data) do
-        {:ok, {_message, _input_control_list, _connection_list}} ->
-          {:ok, :managed_by_synth_manager}
+        {:ok, {message, input_control_list, connection_list}} ->
+          {:ok, {message, input_control_list, connection_list}}
         {:error, error} ->
           {:error, error}
       end
