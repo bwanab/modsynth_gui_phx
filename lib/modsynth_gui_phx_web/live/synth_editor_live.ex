@@ -80,7 +80,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
   defp list_all_strack_files(scripts_dir) do
     user_files = list_strack_files_in_dir(scripts_dir, "User Scripts")
     example_files = case File.ls("./example_stracks") do
-      {:ok, files} ->
+      {:ok, _files} ->
         list_strack_files_in_dir("./example_stracks", "Example Scripts")
       _ ->
         []
@@ -774,6 +774,178 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     end
   end
 
+    # Tab switching events
+  def handle_event("switch_to_synth_editor", _params, socket) do
+    {:noreply, assign(socket, :active_tab, :synth_editor)}
+  end
+
+  def handle_event("switch_to_strack_editor", _params, socket) do
+    {:noreply, assign(socket, :active_tab, :strack_editor)}
+  end
+
+  # Play menu events
+  def handle_event("toggle_play_menu", _params, socket) do
+    # Load MIDI ports if not already loaded
+    {midi_ports, port_map} = case ModsynthGuiPhx.SynthManager.get_midi_ports() do
+      {:ok, {ports, map}} -> {ports, map}
+      {:error, _} -> {[], %{}}
+    end
+
+    new_play_menu = %{
+      visible: !socket.assigns.play_menu.visible,
+      midi_ports: midi_ports,
+      port_map: port_map,
+      selected_port: socket.assigns.play_menu.selected_port
+    }
+
+    {:noreply, assign(socket, :play_menu, new_play_menu)}
+  end
+
+  def handle_event("play_script", _params, socket) do
+    # Hide the play menu
+    socket = assign(socket, :play_menu, Map.put(socket.assigns.play_menu, :visible, false))
+
+    # Auto-compile and play the script
+    case execute_strack_code(socket.assigns.strack_code) do
+      {:ok, result} ->
+        case play_strack_map_with_current_synth(result, socket) do
+          {:ok, {message, input_control_list, connection_list}} ->
+            socket =
+              socket
+              |> assign(:strack_playing, true)
+              |> assign(:strack_result, result)
+              |> assign(:strack_error, nil)
+              |> assign(:mode, :run)
+              |> assign(:input_control_list, input_control_list)
+              |> assign(:connection_list, connection_list)
+              |> put_flash(:info, message)
+
+            # Start polling for bus values if display is enabled
+            if socket.assigns.bus_value_display do
+              send(self(), :fetch_connection_values)
+            end
+
+            {:noreply, socket}
+          {:error, error} ->
+            {:noreply, put_flash(socket, :error, "Failed to play script: #{error}")}
+        end
+      {:error, error} ->
+        {:noreply, put_flash(socket, :error, "Script compilation error: #{error}")}
+    end
+  end
+
+  def handle_event("stop_playback", _params, socket) do
+    # Stop both synth and script playback
+    case ModsynthGuiPhx.SynthManager.stop_synth() do
+      {:ok, _message} ->
+        socket =
+          socket
+          |> assign(:mode, :edit)
+          |> assign(:strack_playing, false)
+          |> assign(:strack_midi_player_pid, nil)
+          |> assign(:bus_value_display, false)
+          |> assign(:connection_values, %{})
+          |> put_flash(:info, "Playback stopped")
+        {:noreply, socket}
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to stop playback: #{reason}")}
+    end
+  end
+
+  # Script Editor events
+  def handle_event("strack_editor_content_changed", %{"value" => value}, socket) do
+    {:noreply, assign(socket, :strack_code, value)}
+  end
+
+  def handle_event("strack_save_code", %{"filename" => filename}, socket) do
+    full_path = Path.join(socket.assigns.scripts_dir, ensure_exs_extension(filename))
+
+    case File.write(full_path, socket.assigns.strack_code) do
+      :ok ->
+        socket =
+          socket
+          |> assign(:strack_saved_filename, filename)
+          |> assign(:strack_all_files, list_all_strack_files(socket.assigns.scripts_dir))
+          |> put_flash(:info, "Code saved as #{filename}")
+        {:noreply, socket}
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to save: #{inspect(reason)}")}
+    end
+  end
+
+  def handle_event("strack_load_file", %{"path" => filepath}, socket) do
+    case File.read(filepath) do
+      {:ok, content} ->
+        filename = Path.basename(filepath, ".exs")
+        socket =
+          socket
+          |> assign(:strack_code, content)
+          |> assign(:strack_saved_filename, filename)
+          |> assign(:strack_result, nil)
+          |> assign(:strack_error, nil)
+          |> put_flash(:info, "Loaded #{filename}")
+
+        # Explicitly push the loaded content to Monaco Editor
+        socket = LiveMonacoEditor.set_value(socket, content)
+        {:noreply, socket}
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to load file: #{inspect(reason)}")}
+    end
+  end
+
+  def handle_event("strack_new_file", _params, socket) do
+    socket =
+      socket
+      |> assign(:strack_code, "")
+      |> assign(:strack_saved_filename, nil)
+      |> assign(:strack_result, nil)
+      |> assign(:strack_error, nil)
+      |> put_flash(:info, "New file created")
+
+    # Explicitly clear the Monaco Editor
+    socket = LiveMonacoEditor.set_value(socket, "")
+    {:noreply, socket}
+  end
+
+  # Handle MIDI playback completion for STrack
+  def handle_info(:midi_play_done, socket) do
+    socket =
+      socket
+      |> assign(:strack_playing, false)
+      |> assign(:strack_midi_player_pid, nil)
+      |> put_flash(:info, "Playback finished")
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info(:fetch_connection_values, socket) do
+    # Only fetch values if in run mode and bus value display is enabled
+    if socket.assigns.mode == :run and socket.assigns.bus_value_display do
+      case ModsynthGuiPhx.SynthManager.get_connection_values(socket.assigns.connection_list) do
+        {:ok, connection_values} ->
+          # Convert connection_values to a map for easy lookup
+          # connection_values format: [{bus_id, desc, value}, ...]
+          values_map = Enum.reduce(connection_values, %{}, fn {bus_id, desc, value}, acc ->
+            Map.put(acc, bus_id, %{desc: desc, value: value})
+          end)
+
+          socket = assign(socket, :connection_values, values_map)
+
+          # Schedule next fetch in 200ms
+          Process.send_after(self(), :fetch_connection_values, 200)
+
+          {:noreply, socket}
+
+        {:error, _reason} ->
+          # If there's an error, just continue without updating values
+          Process.send_after(self(), :fetch_connection_values, 500)
+          {:noreply, socket}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
   defp create_connection(socket, from_node_id, from_port, to_node_id, to_port) do
     # Validate that nodes exist
     from_node = Enum.find(socket.assigns.nodes, &(&1["id"] == from_node_id))
@@ -1057,148 +1229,6 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     end
   end
 
-  # Tab switching events
-  def handle_event("switch_to_synth_editor", _params, socket) do
-    {:noreply, assign(socket, :active_tab, :synth_editor)}
-  end
-
-  def handle_event("switch_to_strack_editor", _params, socket) do
-    {:noreply, assign(socket, :active_tab, :strack_editor)}
-  end
-
-  # Play menu events
-  def handle_event("toggle_play_menu", _params, socket) do
-    # Load MIDI ports if not already loaded
-    {midi_ports, port_map} = case ModsynthGuiPhx.SynthManager.get_midi_ports() do
-      {:ok, {ports, map}} -> {ports, map}
-      {:error, _} -> {[], %{}}
-    end
-
-    new_play_menu = %{
-      visible: !socket.assigns.play_menu.visible,
-      midi_ports: midi_ports,
-      port_map: port_map,
-      selected_port: socket.assigns.play_menu.selected_port
-    }
-
-    {:noreply, assign(socket, :play_menu, new_play_menu)}
-  end
-
-  def handle_event("play_script", _params, socket) do
-    # Hide the play menu
-    socket = assign(socket, :play_menu, Map.put(socket.assigns.play_menu, :visible, false))
-
-    # Auto-compile and play the script
-    case execute_strack_code(socket.assigns.strack_code) do
-      {:ok, result} ->
-        case play_strack_map_with_current_synth(result, socket) do
-          {:ok, {message, input_control_list, connection_list}} ->
-            socket =
-              socket
-              |> assign(:strack_playing, true)
-              |> assign(:strack_result, result)
-              |> assign(:strack_error, nil)
-              |> assign(:mode, :run)
-              |> assign(:input_control_list, input_control_list)
-              |> assign(:connection_list, connection_list)
-              |> put_flash(:info, message)
-
-            # Start polling for bus values if display is enabled
-            if socket.assigns.bus_value_display do
-              send(self(), :fetch_connection_values)
-            end
-
-            {:noreply, socket}
-          {:error, error} ->
-            {:noreply, put_flash(socket, :error, "Failed to play script: #{error}")}
-        end
-      {:error, error} ->
-        {:noreply, put_flash(socket, :error, "Script compilation error: #{error}")}
-    end
-  end
-
-  def handle_event("stop_playback", _params, socket) do
-    # Stop both synth and script playback
-    case ModsynthGuiPhx.SynthManager.stop_synth() do
-      {:ok, _message} ->
-        socket =
-          socket
-          |> assign(:mode, :edit)
-          |> assign(:strack_playing, false)
-          |> assign(:strack_midi_player_pid, nil)
-          |> assign(:bus_value_display, false)
-          |> assign(:connection_values, %{})
-          |> put_flash(:info, "Playback stopped")
-        {:noreply, socket}
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to stop playback: #{reason}")}
-    end
-  end
-
-  # Script Editor events
-  def handle_event("strack_editor_content_changed", %{"value" => value}, socket) do
-    {:noreply, assign(socket, :strack_code, value)}
-  end
-
-  def handle_event("strack_save_code", %{"filename" => filename}, socket) do
-    full_path = Path.join(socket.assigns.scripts_dir, ensure_exs_extension(filename))
-
-    case File.write(full_path, socket.assigns.strack_code) do
-      :ok ->
-        socket =
-          socket
-          |> assign(:strack_saved_filename, filename)
-          |> assign(:strack_all_files, list_all_strack_files(socket.assigns.scripts_dir))
-          |> put_flash(:info, "Code saved as #{filename}")
-        {:noreply, socket}
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to save: #{inspect(reason)}")}
-    end
-  end
-
-  def handle_event("strack_load_file", %{"path" => filepath}, socket) do
-    case File.read(filepath) do
-      {:ok, content} ->
-        filename = Path.basename(filepath, ".exs")
-        socket =
-          socket
-          |> assign(:strack_code, content)
-          |> assign(:strack_saved_filename, filename)
-          |> assign(:strack_result, nil)
-          |> assign(:strack_error, nil)
-          |> put_flash(:info, "Loaded #{filename}")
-
-        # Explicitly push the loaded content to Monaco Editor
-        socket = LiveMonacoEditor.set_value(socket, content)
-        {:noreply, socket}
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to load file: #{inspect(reason)}")}
-    end
-  end
-
-  def handle_event("strack_new_file", _params, socket) do
-    socket =
-      socket
-      |> assign(:strack_code, "")
-      |> assign(:strack_saved_filename, nil)
-      |> assign(:strack_result, nil)
-      |> assign(:strack_error, nil)
-      |> put_flash(:info, "New file created")
-
-    # Explicitly clear the Monaco Editor
-    socket = LiveMonacoEditor.set_value(socket, "")
-    {:noreply, socket}
-  end
-
-  # Handle MIDI playback completion for STrack
-  def handle_info(:midi_play_done, socket) do
-    socket =
-      socket
-      |> assign(:strack_playing, false)
-      |> assign(:strack_midi_player_pid, nil)
-      |> put_flash(:info, "Playback finished")
-    {:noreply, socket}
-  end
 
   # STrack helper functions (copied from STrackCodeEditorLive)
   defp execute_strack_code(code) do
@@ -1272,17 +1302,17 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
   defp prepend_prelude_files(user_script) do
     main_prelude = get_main_prelude()
     user_prelude = get_user_prelude()
-    
+
     # Create the complete script with UserScriptEnvironment module wrapper
     """
     defmodule UserScriptEnvironment do
-    
+
     #{main_prelude}
     #{user_prelude}
     def user_script() do
-    
+
     #{user_script}
-    
+
     end
     end
     UserScriptEnvironment.user_script()
@@ -1303,13 +1333,6 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     rescue
       e ->
         {:error, Exception.message(e)}
-    end
-  end
-
-  defp stop_strack_playback(_pid) do
-    case ModsynthGuiPhx.SynthManager.stop_synth() do
-      {:ok, _message} -> :ok
-      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -2728,32 +2751,4 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
   end
 
 
-  @impl true
-  def handle_info(:fetch_connection_values, socket) do
-    # Only fetch values if in run mode and bus value display is enabled
-    if socket.assigns.mode == :run and socket.assigns.bus_value_display do
-      case ModsynthGuiPhx.SynthManager.get_connection_values(socket.assigns.connection_list) do
-        {:ok, connection_values} ->
-          # Convert connection_values to a map for easy lookup
-          # connection_values format: [{bus_id, desc, value}, ...]
-          values_map = Enum.reduce(connection_values, %{}, fn {bus_id, desc, value}, acc ->
-            Map.put(acc, bus_id, %{desc: desc, value: value})
-          end)
-
-          socket = assign(socket, :connection_values, values_map)
-
-          # Schedule next fetch in 200ms
-          Process.send_after(self(), :fetch_connection_values, 200)
-
-          {:noreply, socket}
-
-        {:error, _reason} ->
-          # If there's an error, just continue without updating values
-          Process.send_after(self(), :fetch_connection_values, 500)
-          {:noreply, socket}
-      end
-    else
-      {:noreply, socket}
-    end
-  end
 end

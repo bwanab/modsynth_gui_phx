@@ -80,7 +80,9 @@ defmodule ModsynthGuiPhx.FileManager do
 
   def save_synth_file(filename, data) do
     ensure_directories()
-    file_path = Path.join(synth_networks_dir(), "#{filename}.json")
+    # Remove .json extension if already present, then add it to prevent double extensions
+    clean_filename = String.replace_suffix(filename, ".json", "")
+    file_path = Path.join(synth_networks_dir(), "#{clean_filename}.json")
 
     case Jason.encode(data, pretty: true) do
       {:ok, json} ->
