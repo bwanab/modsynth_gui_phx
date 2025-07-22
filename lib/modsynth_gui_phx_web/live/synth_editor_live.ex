@@ -4,19 +4,19 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
 
   require Logger
 
-  @impl true  
+  @impl true
   def mount(params, _session, socket) do
     # Determine which tab to show based on route
     active_tab = case params do
       %{"tab" => "strack"} -> :strack_editor
       _ -> :synth_editor  # Default to synth editor
     end
-    
+
     # Load synth editor data
     {user_files, example_files} = FileManager.list_synth_files()
     Logger.info("LiveView mount - User files: #{inspect(user_files)}")
     Logger.debug("LiveView mount - Example files: #{inspect(example_files)}")
-    
+
     # Combine and sort all files alphabetically by name (mixed categories)
     all_files = (user_files ++ example_files)
                 |> Enum.sort_by(fn file -> file.name end)
@@ -29,7 +29,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       socket
       # Tab management
       |> assign(:active_tab, active_tab)
-      
+
       # Synth Editor state (preserve existing state)
       |> assign(:user_files, user_files)
       |> assign(:example_files, example_files)
@@ -58,7 +58,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       |> assign(:node_config_modal, %{visible: false, node_type: nil, svg_x: 0, svg_y: 0})
       |> assign(:bus_value_display, false)
       |> assign(:connection_values, %{})
-      
+
       # Script Editor state (new)
       |> assign(:strack_code, "")
       |> assign(:strack_result, nil)
@@ -93,6 +93,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       {:ok, files} ->
         files
         |> Enum.filter(&String.ends_with?(&1, ".exs"))
+        |> Enum.filter(&(not String.starts_with?(&1, ".")))
         |> Enum.map(fn filename ->
           %{
             name: String.replace_suffix(filename, ".exs", ""),
@@ -112,7 +113,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       filename <> ".exs"
     end
   end
-  
+
   defp restore_synth_data_if_available(socket) do
     case ModsynthGuiPhx.SynthManager.get_current_synth_data() do
       {:ok, current_synth} ->
@@ -232,19 +233,19 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     # Get filename suggestions based on what the user has typed
     suggestions = if String.length(filename) > 0 do
       socket.assigns.all_files
-      |> Enum.filter(fn file -> 
+      |> Enum.filter(fn file ->
         String.contains?(String.downcase(file.name), String.downcase(filename))
       end)
       |> Enum.take(10)  # Limit to 10 suggestions
     else
       []
     end
-    
+
     socket =
       socket
       |> assign(:new_filename, filename)
       |> assign(:filename_suggestions, suggestions)
-    
+
     {:noreply, socket}
   end
 
@@ -253,7 +254,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       socket
       |> assign(:new_filename, filename)
       |> assign(:filename_suggestions, [])
-    
+
     {:noreply, socket}
   end
 
@@ -335,7 +336,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       %{name: device_name} ->
         # Create current synth data from LiveView state
         current_synth_data = create_current_synth_data(socket)
-        
+
         case ModsynthGuiPhx.SynthManager.play_synth_with_current_data(device_name, current_synth_data) do
           {:ok, {message, input_control_list, connection_list}} ->
             socket = socket
@@ -344,12 +345,12 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
             |> assign(:mode, :run)
             |> assign(:input_control_list, input_control_list)
             |> assign(:connection_list, connection_list)
-            
+
             # Start polling for bus values if display is enabled
             if socket.assigns.bus_value_display do
               send(self(), :fetch_connection_values)
             end
-            
+
             {:noreply, socket}
 
           {:error, reason} ->
@@ -394,7 +395,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     else
       # Create current synth data from LiveView state
       current_synth_data = create_current_synth_data(socket)
-      
+
       case ModsynthGuiPhx.SynthManager.play_midi_file_with_current_data(midi_file_path, current_synth_data) do
         {:ok, {message, input_control_list, connection_list}} ->
           socket = socket
@@ -403,7 +404,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           |> assign(:mode, :run)
           |> assign(:input_control_list, input_control_list)
           |> assign(:connection_list, connection_list)
-          
+
           # Start polling for bus values if display is enabled
           if socket.assigns.bus_value_display do
             send(self(), :fetch_connection_values)
@@ -435,16 +436,16 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
 
   def handle_event("toggle_bus_value_display", _, socket) do
     new_display_state = !socket.assigns.bus_value_display
-    
+
     socket = socket
     |> assign(:bus_value_display, new_display_state)
     |> assign(:connection_values, %{})
-    
+
     # Start polling if enabling display and in run mode
     if new_display_state and socket.assigns.mode == :run do
       send(self(), :fetch_connection_values)
     end
-    
+
     {:noreply, socket}
   end
 
@@ -634,7 +635,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       # Show configuration modal for const and cc-in nodes
       svg_x = socket.assigns.node_creation_menu.svg_x
       svg_y = socket.assigns.node_creation_menu.svg_y
-      
+
       socket = socket
       |> assign(:node_config_modal, %{
         visible: true,
@@ -643,7 +644,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
         svg_y: svg_y
       })
       |> assign(:node_creation_menu, %{visible: false, x: 0, y: 0, svg_x: 0, svg_y: 0, available_types: []})
-      
+
       {:noreply, socket}
     else
       # Create node immediately for other types
@@ -677,7 +678,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     end)
 
     socket = assign(socket, :nodes, updated_nodes)
-    
+
     # If in run mode, send the value to SuperCollider in real-time
     if socket.assigns.mode == :run do
       send_parameter_to_supercollider(socket, node_id, new_value)
@@ -699,20 +700,20 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       "max_val" => max_val_str,
       "control" => control
     } = params
-    
+
     # Parse values
     val = parse_float(val_str)
     min_val = parse_float(min_val_str)
     max_val = parse_float(max_val_str)
-    
+
     # Validate ranges
     cond do
       min_val >= max_val ->
         {:noreply, put_flash(socket, :error, "Minimum value must be less than maximum value")}
-      
+
       val < min_val || val > max_val ->
         {:noreply, put_flash(socket, :error, "Initial value must be between minimum and maximum values")}
-      
+
       true ->
         create_node_immediately(socket, node_type, val, min_val, max_val, control)
     end
@@ -727,21 +728,21 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
 
   def handle_event("update_node_info_params", params, socket) do
     %{"node_id" => node_id_str, "val" => val_str, "min_val" => min_val_str, "max_val" => max_val_str} = params
-    
+
     # Parse the node ID and values
     node_id = String.to_integer(node_id_str)
     val = parse_float(val_str)
     min_val = parse_float(min_val_str)
     max_val = parse_float(max_val_str)
-    
+
     # Validate ranges
     cond do
       min_val >= max_val ->
         {:noreply, put_flash(socket, :error, "Minimum value must be less than maximum value")}
-      
+
       val < min_val || val > max_val ->
         {:noreply, put_flash(socket, :error, "Current value must be between minimum and maximum values")}
-      
+
       true ->
         # Find and update the node
         updated_nodes = Enum.map(socket.assigns.nodes, fn node ->
@@ -754,21 +755,21 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
             node
           end
         end)
-        
+
         # Update the node in the modal as well
         updated_node = Enum.find(updated_nodes, &(&1["id"] == node_id))
-        
+
         # Send parameter update to SuperCollider if in run mode
         if socket.assigns.mode == :run do
           send_parameter_to_supercollider(socket, node_id, val)
         end
-        
+
         socket =
           socket
           |> assign(:nodes, updated_nodes)
           |> assign(:node_info_modal, %{socket.assigns.node_info_modal | node: updated_node})
           |> put_flash(:info, "Node parameters updated successfully")
-        
+
         {:noreply, socket}
     end
   end
@@ -1056,15 +1057,15 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     end
   end
 
-  # Tab switching events  
+  # Tab switching events
   def handle_event("switch_to_synth_editor", _params, socket) do
     {:noreply, assign(socket, :active_tab, :synth_editor)}
   end
-  
+
   def handle_event("switch_to_strack_editor", _params, socket) do
     {:noreply, assign(socket, :active_tab, :strack_editor)}
   end
-  
+
   # Play menu events
   def handle_event("toggle_play_menu", _params, socket) do
     # Load MIDI ports if not already loaded
@@ -1072,21 +1073,21 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       {:ok, {ports, map}} -> {ports, map}
       {:error, _} -> {[], %{}}
     end
-    
+
     new_play_menu = %{
       visible: !socket.assigns.play_menu.visible,
       midi_ports: midi_ports,
       port_map: port_map,
       selected_port: socket.assigns.play_menu.selected_port
     }
-    
+
     {:noreply, assign(socket, :play_menu, new_play_menu)}
   end
-  
+
   def handle_event("play_script", _params, socket) do
     # Hide the play menu
     socket = assign(socket, :play_menu, Map.put(socket.assigns.play_menu, :visible, false))
-    
+
     # Auto-compile and play the script
     case execute_strack_code(socket.assigns.strack_code) do
       {:ok, result} ->
@@ -1101,12 +1102,12 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
               |> assign(:input_control_list, input_control_list)
               |> assign(:connection_list, connection_list)
               |> put_flash(:info, message)
-            
+
             # Start polling for bus values if display is enabled
             if socket.assigns.bus_value_display do
               send(self(), :fetch_connection_values)
             end
-            
+
             {:noreply, socket}
           {:error, error} ->
             {:noreply, put_flash(socket, :error, "Failed to play script: #{error}")}
@@ -1115,7 +1116,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
         {:noreply, put_flash(socket, :error, "Script compilation error: #{error}")}
     end
   end
-  
+
   def handle_event("stop_playback", _params, socket) do
     # Stop both synth and script playback
     case ModsynthGuiPhx.SynthManager.stop_synth() do
@@ -1133,7 +1134,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
         {:noreply, put_flash(socket, :error, "Failed to stop playback: #{reason}")}
     end
   end
-  
+
   # Script Editor events
   def handle_event("strack_editor_content_changed", %{"value" => value}, socket) do
     {:noreply, assign(socket, :strack_code, value)}
@@ -1141,7 +1142,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
 
   def handle_event("strack_save_code", %{"filename" => filename}, socket) do
     full_path = Path.join(socket.assigns.scripts_dir, ensure_exs_extension(filename))
-    
+
     case File.write(full_path, socket.assigns.strack_code) do
       :ok ->
         socket =
@@ -1166,7 +1167,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           |> assign(:strack_result, nil)
           |> assign(:strack_error, nil)
           |> put_flash(:info, "Loaded #{filename}")
-        
+
         # Explicitly push the loaded content to Monaco Editor
         socket = LiveMonacoEditor.set_value(socket, content)
         {:noreply, socket}
@@ -1183,7 +1184,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       |> assign(:strack_result, nil)
       |> assign(:strack_error, nil)
       |> put_flash(:info, "New file created")
-    
+
     # Explicitly clear the Monaco Editor
     socket = LiveMonacoEditor.set_value(socket, "")
     {:noreply, socket}
@@ -1202,7 +1203,10 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
   # STrack helper functions (copied from STrackCodeEditorLive)
   defp execute_strack_code(code) do
     try do
-      case Code.eval_string(code) do
+      # Prepend prelude files to user script
+      full_code = prepend_prelude_files(code)
+      Logger.debug(full_code)
+      case Code.eval_string(full_code) do
         {result, _} ->
           case validate_strack_map(result) do
             {:ok, validated_result} -> {:ok, validated_result}
@@ -1229,11 +1233,67 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
   defp is_strack?(%STrack{}), do: true
   defp is_strack?(_), do: false
 
+  # Prelude file loading and prepending functions
+
+  @main_prelude_path "prelude.exs"
+  @user_prelude_dir "~/.modsynth/strack_scripts"
+  @user_prelude_file ".prelude.exs"
+
+  # Cache for main prelude file (loaded once per session)
+  defp get_main_prelude() do
+    case Process.get(:main_prelude_cache) do
+      nil ->
+        content = load_prelude_file(@main_prelude_path, "main prelude")
+        Process.put(:main_prelude_cache, content)
+        content
+      cached_content ->
+        cached_content
+    end
+  end
+
+  # Load user prelude file (fresh every time, no caching)
+  defp get_user_prelude() do
+    user_prelude_path = Path.join(Path.expand(@user_prelude_dir), @user_prelude_file)
+    load_prelude_file(user_prelude_path, "user prelude")
+  end
+
+  # Helper function to load a prelude file with error handling
+  defp load_prelude_file(file_path, description) do
+    case File.read(file_path) do
+      {:ok, content} -> content <> "\n"  # Add newline to separate from user script
+      {:error, :enoent} -> ""  # File doesn't exist, return empty string
+      {:error, reason} ->
+        Logger.warning("Failed to load #{description} from #{file_path}: #{reason}")
+        ""  # Return empty string on any error
+    end
+  end
+
+  # Main function to prepend prelude files to user script with module wrapper
+  defp prepend_prelude_files(user_script) do
+    main_prelude = get_main_prelude()
+    user_prelude = get_user_prelude()
+    
+    # Create the complete script with UserScriptEnvironment module wrapper
+    """
+    defmodule UserScriptEnvironment do
+    
+    #{main_prelude}
+    #{user_prelude}
+    def user_script() do
+    
+    #{user_script}
+    
+    end
+    end
+    UserScriptEnvironment.user_script()
+    """
+  end
+
   defp play_strack_map_with_current_synth(strack_map, socket) do
     try do
       # Use current synth data from LiveView state (like MIDI file playback does)
       current_synth_data = create_current_synth_data(socket)
-      
+
       case ModsynthGuiPhx.SynthManager.play_midi_file_with_current_data(strack_map, current_synth_data) do
         {:ok, {message, input_control_list, connection_list}} ->
           {:ok, {message, input_control_list, connection_list}}
@@ -1296,7 +1356,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
               <span class="text-sm font-medium">Connection Mode - Click input port to connect</span>
             </div>
           <% end %>
-          
+
           <!-- Mode Indicator -->
           <div class={[
             "flex items-center space-x-2 px-3 py-1 rounded-full",
@@ -1310,7 +1370,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
               <%= if @mode == :run, do: "RUN MODE - Live parameters", else: "EDIT MODE" %>
             </span>
           </div>
-          
+
           <!-- Bus Value Display Toggle (only show in run mode) -->
           <%= if @mode == :run do %>
             <button
@@ -1376,8 +1436,8 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
                           phx-click="play_script"
                           class={[
                             "w-full px-4 py-2 text-sm rounded-md",
-                            if(is_nil(@strack_code) or String.trim(@strack_code) == "", 
-                               do: "bg-gray-300 text-gray-500 cursor-not-allowed", 
+                            if(is_nil(@strack_code) or String.trim(@strack_code) == "",
+                               do: "bg-gray-300 text-gray-500 cursor-not-allowed",
                                else: "bg-orange-600 hover:bg-orange-700 text-white cursor-pointer")
                           ]}
                           disabled={is_nil(@strack_code) or String.trim(@strack_code) == ""}
@@ -1385,9 +1445,9 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
                           Play Script
                         </button>
                       </div>
-                      
+
                       <hr class="border-gray-300" />
-                      
+
                       <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">Play with Device</label>
                         <div class="flex space-x-2">
@@ -1793,7 +1853,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           </div>
         </div>
       <% end %>
-      
+
       <!-- Node Configuration Modal -->
       <%= if @node_config_modal.visible do %>
         <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" phx-click="hide_node_config_modal">
@@ -1816,7 +1876,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
             <!-- Modal Content -->
             <form phx-submit="create_configured_node" class="p-4 space-y-4">
               <input type="hidden" name="node_type" value={@node_config_modal.node_type} />
-              
+
               <!-- Initial Value -->
               <div>
                 <label class="block text-sm font-medium text-gray-300 mb-2">Initial Value</label>
@@ -1900,7 +1960,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           <div class="w-64 bg-gray-800 overflow-hidden">
             <div class="p-4 h-full overflow-y-auto">
               <h3 class="text-lg font-semibold mb-4">Script Files</h3>
-              
+
               <!-- Save Section -->
               <div class="mb-6">
                 <label class="block text-sm font-medium text-gray-300 mb-2">Save As:</label>
@@ -1920,7 +1980,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
                   </button>
                 </form>
               </div>
-              
+
               <!-- File List -->
               <div class="space-y-1 overflow-y-auto" style="max-height: calc(100vh - 300px);">
                 <%= for file <- @strack_all_files do %>
@@ -1945,7 +2005,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
               </div>
             </div>
           </div>
-          
+
           <!-- Editor Area -->
           <div class="flex-1 flex flex-col">
             <!-- Script Controls -->
@@ -1959,7 +2019,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
                 </button>
               </div>
             </div>
-            
+
             <!-- Monaco Editor -->
             <div class="flex-1 relative">
               <LiveMonacoEditor.code_editor
@@ -2424,7 +2484,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       >
         <%= Float.round(@current_val, 2) %>
       </text>
-      
+
       <!-- Node Type Label -->
       <text
         x={@knob_center_x}
@@ -2516,7 +2576,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     input_control = Enum.find(socket.assigns.input_control_list, fn ic ->
       ic.node_id == node_id
     end)
-    
+
     if input_control do
       try do
         ScClient.set_control(input_control.sc_id, input_control.control_name, value)
@@ -2534,13 +2594,13 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     cond do
       # Very small values (< 0.001) -> show as 0.0
       abs(value) < 0.001 -> "0.0"
-      
+
       # Small values (< 1.0) -> show 3 decimal places
       abs(value) < 1.0 -> Float.round(value, 3) |> Float.to_string()
-      
+
       # Medium values (< 10.0) -> show 1 decimal place
       abs(value) < 10.0 -> Float.round(value, 1) |> Float.to_string()
-      
+
       # Large values (>= 10.0) -> show integer part only
       true -> round(value) |> Integer.to_string()
     end
@@ -2551,10 +2611,10 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
   defp create_current_synth_data(socket) do
     # Convert port-based connections back to parameter-based format
     param_connections = convert_connections_to_param_format(socket.assigns.connections, socket.assigns.nodes)
-    
+
     # Convert enriched nodes back to original format
     original_nodes = convert_enriched_nodes_to_original_format(socket.assigns.nodes)
-    
+
     # Create synth data structure compatible with backend
     %{
       "nodes" => original_nodes,
@@ -2679,14 +2739,14 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           values_map = Enum.reduce(connection_values, %{}, fn {bus_id, desc, value}, acc ->
             Map.put(acc, bus_id, %{desc: desc, value: value})
           end)
-          
+
           socket = assign(socket, :connection_values, values_map)
-          
+
           # Schedule next fetch in 200ms
           Process.send_after(self(), :fetch_connection_values, 200)
-          
+
           {:noreply, socket}
-        
+
         {:error, _reason} ->
           # If there's an error, just continue without updating values
           Process.send_after(self(), :fetch_connection_values, 500)

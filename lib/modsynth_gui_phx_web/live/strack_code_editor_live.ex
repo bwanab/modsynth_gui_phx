@@ -1,12 +1,13 @@
 defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
   use ModsynthGuiPhxWeb, :live_view
-  
+  require Logger
+
   @default_code ""
 
   def mount(_params, _session, socket) do
     scripts_dir = Path.expand("~/.modsynth/strack_scripts")
     File.mkdir_p!(scripts_dir)
-    
+
     socket =
       socket
       |> assign(:code, @default_code)
@@ -79,7 +80,7 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
     else
       filename = ensure_exs_extension(filename)
       filepath = Path.join(socket.assigns.scripts_dir, filename)
-      
+
       case File.write(filepath, socket.assigns.code) do
         :ok ->
           socket =
@@ -105,7 +106,7 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
           |> assign(:result, nil)
           |> assign(:error, nil)
           |> put_flash(:info, "Loaded #{filename}")
-        
+
         # Explicitly push the loaded content to Monaco Editor
         socket = LiveMonacoEditor.set_value(socket, content)
         {:noreply, socket}
@@ -122,7 +123,7 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
       |> assign(:result, nil)
       |> assign(:error, nil)
       |> put_flash(:info, "New file created")
-    
+
     # Explicitly clear the Monaco Editor
     socket = LiveMonacoEditor.set_value(socket, @default_code)
     {:noreply, socket}
@@ -135,9 +136,11 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
 
   defp execute_strack_code(code) do
     try do
-      # Execute the code and capture the result
-      {result, _bindings} = Code.eval_string(code, [])
-      
+      # Prepend prelude files to user script and execute
+      full_code = prepend_prelude_files(code)
+      IO.inspect(full_code)
+      {result, _bindings} = Code.eval_string(full_code, [])
+
       # Validate that the result is a map of STrack structs
       case validate_strack_map(result) do
         :ok ->
@@ -152,6 +155,62 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
       kind, reason ->
         {:error, "#{kind}: #{inspect(reason)}"}
     end
+  end
+
+  # Prelude file loading and prepending functions
+
+  @main_prelude_path "prelude.exs"
+  @user_prelude_dir "~/.modsynth/strack_scripts"
+  @user_prelude_file ".prelude.exs"
+
+  # Cache for main prelude file (loaded once per session)
+  defp get_main_prelude() do
+    case Process.get(:main_prelude_cache) do
+      nil ->
+        content = load_prelude_file(@main_prelude_path, "main prelude")
+        Process.put(:main_prelude_cache, content)
+        content
+      cached_content ->
+        cached_content
+    end
+  end
+
+  # Load user prelude file (fresh every time, no caching)
+  defp get_user_prelude() do
+    user_prelude_path = Path.join(Path.expand(@user_prelude_dir), @user_prelude_file)
+    load_prelude_file(user_prelude_path, "user prelude")
+  end
+
+  # Helper function to load a prelude file with error handling
+  defp load_prelude_file(file_path, description) do
+    case File.read(file_path) do
+      {:ok, content} -> content <> "\n"  # Add newline to separate from user script
+      {:error, :enoent} -> ""  # File doesn't exist, return empty string
+      {:error, reason} ->
+        Logger.warning("Failed to load #{description} from #{file_path}: #{reason}")
+        ""  # Return empty string on any error
+    end
+  end
+
+  # Main function to prepend prelude files to user script with module wrapper
+  defp prepend_prelude_files(user_script) do
+    main_prelude = get_main_prelude()
+    user_prelude = get_user_prelude()
+    
+    # Create the complete script with UserScriptEnvironment module wrapper
+    """
+    defmodule UserScriptEnvironment do
+    
+    #{main_prelude}
+    #{user_prelude}
+    def user_script() do
+    
+    #{user_script}
+    
+    end
+    end
+    UserScriptEnvironment.user_script()
+    """
   end
 
   defp validate_strack_map(result) when is_map(result) do
@@ -172,7 +231,7 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
       case ModsynthGuiPhx.SynthManager.get_current_synth_data() do
         {:ok, current_synth} ->
           IO.puts("Got current synth data from main editor")
-          
+
           # Use SynthManager's play_midi_file_with_current_data function
           # This ensures proper synth lifecycle management and state consistency
           case ModsynthGuiPhx.SynthManager.play_midi_file_with_current_data(strack_map, current_synth.data) do
@@ -184,7 +243,7 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
               IO.puts("Error starting STrack playback: #{error}")
               {:error, error}
           end
-          
+
         {:error, error} ->
           IO.puts("No synth loaded in main editor: #{error}")
           {:error, "No synth loaded in main editor. Please load a synth file first."}
@@ -200,13 +259,13 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
   def handle_info(:midi_play_done, socket) do
     # Handle when playback naturally finishes
     # SynthManager handles all synth lifecycle management
-    
+
     socket =
       socket
       |> assign(:playing, false)
       |> assign(:midi_player_pid, nil)
       |> put_flash(:info, "Playback finished")
-    
+
     {:noreply, socket}
   end
 
@@ -225,11 +284,11 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
   defp list_all_script_files(scripts_dir) do
     # Get user files
     user_files = list_script_files_in_dir(scripts_dir, "User")
-    
-    # Get example files  
+
+    # Get example files
     example_files_dir = Path.expand("./example_stracks")
     example_files = list_script_files_in_dir(example_files_dir, "Examples")
-    
+
     # Combine and sort all files by name
     (user_files ++ example_files)
     |> Enum.sort_by(fn file -> file.name end)
@@ -240,6 +299,7 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
       {:ok, files} ->
         files
         |> Enum.filter(&String.ends_with?(&1, ".exs"))
+        |> Enum.filter(&(not String.starts_with?(&1, ".")))
         |> Enum.map(fn file ->
           %{
             name: Path.basename(file, ".exs"),
@@ -327,7 +387,7 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
         <div class="w-64 bg-gray-800 overflow-hidden">
           <div class="p-4 h-full overflow-y-auto">
             <h3 class="text-lg font-semibold mb-4">Files</h3>
-            
+
             <!-- Save Section -->
             <div class="mb-6">
               <label class="block text-sm font-medium text-gray-300 mb-2">Save As:</label>
@@ -400,7 +460,7 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
           <div class="bg-gray-800 border-t border-gray-700 overflow-y-auto" style="height: 320px;">
             <div class="p-4">
               <h3 class="text-lg font-medium text-white mb-3">Results</h3>
-              
+
               <%= if @error do %>
                 <div class="bg-red-900/50 border border-red-700 rounded-md p-3">
                   <h4 class="text-sm font-medium text-red-300 mb-2">Error:</h4>

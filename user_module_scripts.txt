@@ -1,0 +1,28 @@
+My design didn't take into account the quirks of the Elixir module system. One can't define def or defp outside of a module. Thus, as implemented the scripting won't work.
+
+After some experimentation I think I have a solution. Basically, the script will be
+written in the context of a module we'll call UserScriptEnvironment. Then, the next quirk
+is that the actual user script must also be part of a def itself. In order for that def to be evaluated,
+it has to be called. What we need to make it work is to add several "ghost" lines of code. That is, lines
+of code the user never sees but create the environment in which their scripts will run.
+
+Here is the layout I propose:
+
+
+defmodule UserScriptEnvironment do         # add this line as the first line
+
+<the content of prelude.exs>
+
+<the content of .prelude.exs>
+
+def user_script() do                       # this line goes between the preludes and the user's script
+
+<the content of the user script>
+
+end                                        # these lines are added at the end
+end                                        #
+UserScriptEnvironment.user_script()        #
+
+When this is run through Code.eval_string it should result in the STrack map as before.
+
+This could be built using a template, but I think it's simple enough to do it in raw code.
