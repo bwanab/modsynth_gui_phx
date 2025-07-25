@@ -735,12 +735,9 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     min_val = parse_float(min_val_str)
     max_val = parse_float(max_val_str)
 
-    # Validate ranges
+    # Validate that current value is within range (only if min_val < max_val)
     cond do
-      min_val >= max_val ->
-        {:noreply, put_flash(socket, :error, "Minimum value must be less than maximum value")}
-
-      val < min_val || val > max_val ->
+      min_val < max_val && (val < min_val || val > max_val) ->
         {:noreply, put_flash(socket, :error, "Current value must be between minimum and maximum values")}
 
       true ->
@@ -1781,7 +1778,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
                         <input
                           type="number"
                           name="val"
-                          step="0.1"
+                          step="any"
                           value={@node_info_modal.node["val"] || 0.0}
                           class="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
                         />
@@ -1791,7 +1788,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
                         <input
                           type="number"
                           name="min_val"
-                          step="0.1"
+                          step="any"
                           value={@node_info_modal.node["min_val"] || 0.0}
                           class="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
                         />
@@ -1801,7 +1798,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
                         <input
                           type="number"
                           name="max_val"
-                          step="0.1"
+                          step="any"
                           value={@node_info_modal.node["max_val"] || 10.0}
                           class="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
                         />
