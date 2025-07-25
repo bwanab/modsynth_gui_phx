@@ -1004,12 +1004,17 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
   defp add_node_ranges(%{"name" => "const"} = node) do
     current_val = node["val"] || 5.0  # Default value if none exists
 
-    # For existing const nodes: 0 to 2x current value
-    # For new nodes without a value: 0 to 10
-    {min_val, max_val} = if node["val"] do
-      {0.0, current_val * 2.0}
-    else
-      {0.0, 10.0}
+    # Only set default min/max if they don't already exist (preserve saved values)
+    {min_val, max_val} = cond do
+      node["min_val"] && node["max_val"] ->
+        # Use saved values
+        {node["min_val"], node["max_val"]}
+      node["val"] ->
+        # For existing nodes without saved min/max: 0 to 2x current value
+        {0.0, current_val * 2.0}
+      true ->
+        # For new nodes: 0 to 10
+        {0.0, 10.0}
     end
 
     node
@@ -1021,11 +1026,12 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
   defp add_node_ranges(%{"name" => "cc-in"} = node) do
     current_val = node["val"] || 64.0  # Default MIDI value (0-127 range)
 
-    # For cc-in nodes: default MIDI range 0-127
-    # For new nodes without a value: 0 to 127
-    {min_val, max_val} = if node["val"] do
-      {0.0, 127.0}
+    # Only set default min/max if they don't already exist (preserve saved values)
+    {min_val, max_val} = if node["min_val"] && node["max_val"] do
+      # Use saved values
+      {node["min_val"], node["max_val"]}
     else
+      # Default MIDI range 0-127
       {0.0, 127.0}
     end
 
