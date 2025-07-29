@@ -1,15 +1,21 @@
 // AutoDismissFlash Phoenix LiveView Hook
 export const AutoDismissFlash = {
   mounted() {
-    // Auto-dismiss flash messages after 2 seconds
-    setTimeout(() => {
-      this.el.style.transition = 'opacity 0.3s ease-out';
-      this.el.style.opacity = '0';
+    // Only auto-dismiss success messages, not error messages
+    const isErrorMessage = this.el.classList.contains('bg-rose-50');
+    
+    if (!isErrorMessage) {
+      // Auto-dismiss non-error messages after 2 seconds
       setTimeout(() => {
-        // Trigger the existing Phoenix flash clearing mechanism
-        this.el.click();
-      }, 300); // Wait for fade out animation
-    }, 2000);
+        this.el.style.transition = 'opacity 0.3s ease-out';
+        this.el.style.opacity = '0';
+        setTimeout(() => {
+          // Trigger the existing Phoenix flash clearing mechanism
+          this.el.click();
+        }, 300); // Wait for fade out animation
+      }, 2000);
+    }
+    // Error messages will remain visible until manually dismissed
   }
 };
 
