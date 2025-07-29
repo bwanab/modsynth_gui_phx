@@ -91,7 +91,9 @@ The main canvas is where you create and edit your synthesizer networks. It featu
 2. **Complete the connection** by clicking an input port (left side of nodes, green circles)
 3. **Delete connections** by clicking on the cable itself
 
-![Connection process showing clicking output port, connection mode, and completing connection to input port](screenshots/connection-process.png)
+![Connection process showing clicking output port, connection mode, and completing connection to input port](screenshots/connection-process-1.png)
+
+![Connection process showing clicking output port, connection mode, and completing connection to input port](screenshots/connection-process-2.png)
 
 Port labels show the actual parameter names (freq, gain, cutoff, etc.) making it easy to understand what each connection does.
 
@@ -118,7 +120,9 @@ To save a patch:
 - Display current value and allow precise adjustment
 - Automatically set appropriate ranges based on usage
 
-![Close-up of const node showing interactive knob, current value display, and range indicators](screenshots/const-knob.png)
+![Close-up of const node showing interactive knob, current value display, and range indicators](screenshots/const-knob-1.png)
+
+![Close-up of const node showing interactive knob, current value display, and range indicators](screenshots/const-knob-2.png)
 
 #### Node Information
 
@@ -385,7 +389,7 @@ mix assets.build
 config :logger, :console, level: :info
 
 # MIDI directories for file browser
-config :modsynth_gui_phx, :midi_directories, 
+config :modsynth_gui_phx, :midi_directories,
   "../sc_em/midi;deps/midifile/test"
 
 # Phoenix configuration
