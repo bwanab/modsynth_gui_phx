@@ -648,7 +648,9 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       {:noreply, socket}
     else
       # Create node immediately for other types
-      create_node_immediately(socket, node_type, nil, nil, nil, nil)
+      # Set control to "note" automatically for midi-in nodes
+      control = if node_type == "midi-in", do: "note", else: nil
+      create_node_immediately(socket, node_type, nil, nil, nil, control)
     end
   end
 
