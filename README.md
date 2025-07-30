@@ -1,19 +1,31 @@
 # Modular Synthesizer GUI
 
-A Phoenix LiveView application that provides an interactive graphical interface for creating, editing, and playing modular synthesizer networks using SuperCollider as the audio engine.
+A Phoenix LiveView application that provides a unified interface for creating and editing modular synthesizer networks with integrated script-based music composition capabilities using SuperCollider as the audio engine.
 
 ## User Documentation
 
 ### Overview
 
-The Modular Synthesizer GUI is a web-based visual programming environment for creating modular synthesizer patches. It allows you to:
+The Modular Synthesizer GUI is a web-based unified programming environment for creating modular synthesizer patches and algorithmic music compositions. It features a tabbed interface that seamlessly integrates visual synthesis with script-based composition. It allows you to:
 
+**Visual Synthesizer Editor:**
 - Create synthesizer networks by connecting various audio modules (oscillators, filters, envelopes, etc.)
 - Load and save synthesizer patches
-- Play your creations using MIDI devices or MIDI files
 - Real-time parameter control with visual feedback
+- Edit/Run mode switching with context-sensitive controls
 
-![Main interface showing canvas with connected nodes, file browser open, and loaded synth patch](screenshots/main-interface.png)
+**STrack Script Editor:**
+- Write algorithmic music compositions in Elixir-like syntax
+- Real-time code execution with error validation
+- Musical helper functions for arpeggios, chord progressions, and sequences
+- File management with user scripts and examples
+
+**Unified Playback:**
+- Play creations using MIDI devices or MIDI files
+- Shared synthesizer state between visual and script workflows
+- Cross-format compatibility and live integration
+
+![Main interface showing unified tabbed interface with both Synth Editor and Script Editor tabs, demonstrating the seamless integration](screenshots/main-interface.png)
 
 ### Installation and Setup
 
@@ -132,7 +144,65 @@ Right-click any node to access:
 
 ![Context menu open on a node and node info modal showing detailed parameter information](screenshots/context-menu.png)
 
-### Playing Your Patches
+### STrack Script Editor
+
+The STrack Script Editor provides algorithmic music composition capabilities using an Elixir-like syntax. Access it through the "Script Editor" tab in the unified interface.
+
+![STrack Script Editor showing Monaco Editor with syntax highlighting, file browser, and example scripts](screenshots/strack-editor.png)
+
+#### Code Editor Features
+
+**Monaco Editor Integration**
+- Full Elixir syntax highlighting and error detection
+- Real-time code validation with error display
+- Auto-completion and code formatting
+- Line numbers and code folding
+
+![Monaco Editor showing Elixir syntax highlighting with error markers and auto-completion](screenshots/monaco-editor.png)
+
+#### Script Execution
+
+**Live Code Execution**
+1. Write your STrack script in the editor
+2. Click "Run Script" to execute and validate
+3. View output and any error messages in real-time
+4. Scripts integrate directly with the synthesizer backend
+
+![Script execution showing both successful output and error validation with clear feedback](screenshots/script-execution.png)
+
+#### File Management
+
+**Script Organization**
+- **User Scripts** - Stored in `~/.modsynth/strack_scripts/`
+- **Example Scripts** - Provided examples (simple_note.exs, pachelbel.exs)
+- **File Browser** - Easy navigation between scripts
+- **Save/Load** - Standard file operations with auto-save
+
+![File browser showing user scripts, example scripts, and new script creation options](screenshots/strack-files.png)
+
+#### Prelude System
+
+**Musical Helper Functions**
+- Built-in functions for arpeggios, chord progressions, and sequences
+- C-style include functionality for reusable code
+- Project-wide prelude (`prelude.exs`) and user-specific prelude (`~/.modsynth/strack_scripts/.prelude.exs`)
+- Easy access to common musical patterns and utilities
+
+![Code showing prelude function usage with musical helper functions and include statements](screenshots/prelude-functions.png)
+
+#### Integration with Synthesizer
+
+**Unified Playback**
+- Scripts can trigger and control synthesizer networks
+- Shared state between visual and script editors
+- Real-time parameter control from scripts
+- MIDI integration and virtual port creation
+
+![Split view showing script editor controlling synthesizer network with real-time parameter updates](screenshots/unified-integration.png)
+
+### Playback and Performance
+
+The unified interface supports playback for both visual synthesizer patches and STrack script compositions, with shared MIDI routing and audio processing.
 
 #### MIDI Device Playback
 
@@ -166,6 +236,17 @@ Click the "Stop" button to halt all audio playback and clean up MIDI connections
 
 - `MODSYNTH_DIR` - Directory for user files (default: `~/.modsynth`)
 - `MODSYNTH_MIDI_DIRS` - Semicolon-delimited list of MIDI directories to search
+
+#### File Locations
+
+**User Data Directories:**
+- `~/.modsynth/` - Main user data directory
+- `~/.modsynth/strack_scripts/` - User-created STrack scripts
+- `~/.modsynth/strack_scripts/.prelude.exs` - User-specific prelude functions
+
+**Project Files:**
+- `prelude.exs` - Project-wide helper functions for STrack scripts
+- `example_stracks/` - Example STrack scripts (simple_note.exs, pachelbel.exs)
 
 Example:
 ```bash
@@ -201,11 +282,15 @@ The application consists of several key components:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Phoenix LiveView Frontend                    │
+│                Phoenix LiveView Unified Frontend               │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
-│  │  SynthEditorLive │  │   FileManager   │  │   SynthManager  │ │
-│  │     (UI Logic)   │  │  (File I/O)     │  │ (Audio Engine)  │ │
+│  │  SynthEditorLive │  │STrackCodeEditor │  │   FileManager   │ │
+│  │ (Visual Synth)   │  │ (Script Editor) │  │  (File I/O)     │ │
 │  └─────────────────┘  └─────────────────┘  └─────────────────┘ │
+│  ┌─────────────────────────────────────────┐                   │
+│  │           SynthManager                  │                   │
+│  │      (Audio Engine & Backend)           │                   │
+│  └─────────────────────────────────────────┘                   │
 └─────────────────────────────────────────────────────────────────┘
                                   │
                                   ▼
@@ -229,7 +314,8 @@ modsynth_gui_phx/
 │   │   └── synth_manager.ex        # Backend integration
 │   └── modsynth_gui_phx_web/
 │       ├── live/
-│       │   └── synth_editor_live.ex # Main UI component
+│       │   ├── synth_editor_live.ex      # Unified editor (visual + script)
+│       │   └── strack_code_editor_live.ex # STrack code editor component
 │       ├── components/             # Reusable UI components
 │       └── controllers/            # HTTP controllers
 ├── assets/
@@ -238,28 +324,53 @@ modsynth_gui_phx/
 │   │   └── synth_canvas.js        # Canvas interactions
 │   └── css/                       # Styling
 ├── config/                        # Application configuration
+├── prelude.exs                    # Project-wide STrack helper functions
+├── example_stracks/               # Example STrack scripts
+│   ├── simple_note.exs
+│   └── pachelbel.exs
+├── ~/.modsynth/                   # User data directory
+│   └── strack_scripts/            # User STrack scripts
+│       └── .prelude.exs           # User-specific prelude functions
 └── ../sc_em/                      # SuperCollider backend
     ├── lib/                       # Core synthesizer logic
-    ├── examples/                  # Example patches
+    ├── examples/                  # Example synthesizer patches
     └── sc_defs/                   # SuperCollider definitions
 ```
 
 ### Key Components
 
-#### SynthEditorLive (Main UI)
+#### SynthEditorLive (Unified Interface)
 
 **File:** `lib/modsynth_gui_phx_web/live/synth_editor_live.ex`
 
-The main LiveView component that handles:
-- Canvas rendering and node management
-- Real-time UI updates
-- User interaction events
+The main LiveView component that provides the unified tabbed interface:
+- Tab-based navigation between Synth Editor and Script Editor
+- Canvas rendering and node management for visual synthesis
+- Shared state management between visual and script workflows
+- Real-time UI updates and user interaction events
 - Connection management between nodes
 
 Key functions:
-- `mount/3` - Initialize the LiveView with file lists and empty state
-- `handle_event/3` - Process user interactions (clicks, drags, etc.)
-- `render/1` - Generate the SVG canvas and UI elements
+- `mount/3` - Initialize the LiveView with file lists, tab state, and empty synth state
+- `handle_event/3` - Process user interactions (clicks, drags, tab switches, etc.)
+- `render/1` - Generate the unified interface with tabs, SVG canvas, and script editor
+
+#### STrackCodeEditorLive (Script Editor)
+
+**File:** `lib/modsynth_gui_phx_web/live/strack_code_editor_live.ex`
+
+The STrack script editor component that handles:
+- Monaco Editor integration with Elixir syntax highlighting
+- Real-time code execution and validation
+- Script file management and browser integration
+- Prelude system with helper function support
+- Integration with synthesizer backend for live playback
+
+Key functions:
+- Script execution with error handling and output display
+- File operations for user and example scripts
+- Prelude function loading and include processing
+- Backend integration for live script performance
 
 #### FileManager
 
