@@ -9,10 +9,10 @@ import Config
 
 config :sc_em,
   #port: 57110,
-  port: String.to_integer(System.fetch_env!("SC_PORT")),
-  ip: String.split(System.fetch_env!("SC_IP"), ".") |> Enum.map(&(String.to_integer(&1))) |> List.to_tuple,
-  remote_synth_dir: System.fetch_env!("MODSYNTH_REMOTE_DIR"),
-  local_synth_dir: System.fetch_env!("MODSYNTH_LOCAL_DIR")
+  port: String.to_integer(System.get_env("SC_PORT", "57110")),
+  ip: String.split(System.get_env("SC_IP", "127.0.0.1"), ".") |> Enum.map(&(String.to_integer(&1))) |> List.to_tuple,
+  remote_synth_dir: System.get_env("MODSYNTH_REMOTE_DIR", Path.expand("~/.modsynth/synthdefs")),
+  local_synth_dir: System.get_env("MODSYNTH_LOCAL_DIR", Path.expand("~/.modsynth/synthdefs"))
 
 config :modsynth_gui_phx,
   generators: [timestamp_type: :utc_datetime],

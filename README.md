@@ -35,18 +35,41 @@ The Modular Synthesizer GUI is a web-based unified programming environment for c
 - SuperCollider 3.12+ with the `sc3-plugins` package
 - A MIDI device or MIDI files for playback (optional)
 
+
+
 #### Quick Start
 
+Note that this project doesn't define an internal version of supercollider - it must be managed by the user. This has advantages and disadvantages from the user perspective and
+might be changed in the future.
+
 1. Clone the repository and navigate to the project directory
+
+
 2. Install dependencies:
    ```bash
    mix setup
    ```
-3. Start the Phoenix server:
+3. Run SuperCollider and boot the server.
+
+    a. These steps only need to be performed once, or if the SynthDef file is modified:
+       1. Create directory ~/.modsynth/synthdefs
+       2. Using the Supercollider file menu, open the file:
+          <path to this project>/deps/sc_em/sc_defs/modsynth-synths.sc
+       3. Put cursor on the top parenthesis. This should light up most of the file. Now,
+          Cntrl-enter (Cmd-enter on macos). This loads the synthdefs into the default
+          directory.
+
+   Note that these steps use a static copy of the synthdefs that are located in another
+   project. If you are going to want to modify the synthdefs (and why not), you should
+   clone the sister project: https://github.com/bwanab/sc_em.git where these files are
+   defined. Then instead of the path in 3.a.2 above, use
+   <path to sc_em>/sc_defs/modsynth-synths.sc.
+
+4. Start the Phoenix server:
    ```bash
    mix phx.server
    ```
-4. Open your browser and visit [`localhost:4000`](http://localhost:4000)
+5. Open your browser and visit [`localhost:4000`](http://localhost:4000)
 
 ### Interface Guide
 
