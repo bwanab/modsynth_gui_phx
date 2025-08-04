@@ -63,7 +63,11 @@ config :tailwind,
 # Configures Elixir's Logger
 config :logger, :console, level: :info,
   format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id]
+  metadata: [:request_id, :file, :line]
+
+# Enable automatic compile-time metadata for file/line info
+config :logger,
+  compile_time_application: :modsynth_gui_phx
 
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
