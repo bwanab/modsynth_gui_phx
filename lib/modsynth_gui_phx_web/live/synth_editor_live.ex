@@ -987,7 +987,8 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
   defp convert_modsynth_nodes_to_ui_format(modsynth_nodes, original_nodes) do
     # Convert the map of Modsynth.Node structs to the UI format
     # Keep the original UI data but enrich it with parameter information
-    Enum.map(original_nodes, fn ui_node ->
+    Enum.filter(original_nodes, fn ui_node -> not is_nil(Map.get(modsynth_nodes, ui_node["id"])) end )
+    |> Enum.map(fn ui_node ->
       enriched_node = case Map.get(modsynth_nodes, ui_node["id"]) do
         nil ->
           # Fallback to original node if not found in modsynth data
