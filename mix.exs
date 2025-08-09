@@ -56,8 +56,8 @@ defmodule ModsynthGuiPhx.MixProject do
       {:dns_cluster, "~> 0.1.1"},
       {:bandit, "~> 1.5"},
       {:live_monaco_editor, "~> 0.2.0"},
-      #{:sc_em, path: "../sc_em"}
-      {:sc_em, github: "bwanab/sc_em"}
+      {:sc_em, path: "../sc_em"}
+      #{:sc_em, github: "bwanab/sc_em"}
     ]
   end
 

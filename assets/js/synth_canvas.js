@@ -313,3 +313,121 @@ export const ControlKnob = {
     this.el.style.opacity = '1';
   }
 };
+
+// InlineParameterKnob Phoenix LiveView Hook for inline parameter controls
+export const InlineParameterKnob = {
+  mounted() {
+    this.isDragging = false;
+    this.startY = 0;
+    this.startValue = 0;
+    this.nodeId = parseInt(this.el.dataset.nodeId);
+    this.parameterName = this.el.dataset.parameterName;
+    this.currentVal = parseFloat(this.el.dataset.currentVal);
+    this.minVal = parseFloat(this.el.dataset.minVal);
+    this.maxVal = parseFloat(this.el.dataset.maxVal);
+    
+    // Bind event handlers
+    this.handleMouseDown = this.handleMouseDown.bind(this);
+    this.handleMouseMove = this.handleMouseMove.bind(this);
+    this.handleMouseUp = this.handleMouseUp.bind(this);
+    this.handleRightClick = this.handleRightClick.bind(this);
+    
+    // Add event listeners
+    this.el.addEventListener('mousedown', this.handleMouseDown);
+    this.el.addEventListener('contextmenu', this.handleRightClick);
+    document.addEventListener('mousemove', this.handleMouseMove);
+    document.addEventListener('mouseup', this.handleMouseUp);
+  },
+  
+  destroyed() {
+    this.el.removeEventListener('mousedown', this.handleMouseDown);
+    this.el.removeEventListener('contextmenu', this.handleRightClick);
+    document.removeEventListener('mousemove', this.handleMouseMove);
+    document.removeEventListener('mouseup', this.handleMouseUp);
+  },
+  
+  handleMouseDown(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Check for Ctrl key for fine-tuning mode
+    const isFineTuning = e.ctrlKey;
+    
+    this.isDragging = true;
+    this.startY = e.clientY;
+    this.startValue = this.currentVal;
+    this.isFineTuning = isFineTuning;
+    
+    // Visual feedback
+    this.el.style.opacity = '0.8';
+    
+    // Add cursor style to indicate dragging mode
+    document.body.style.cursor = isFineTuning ? 'ns-resize' : 'ns-resize';
+  },
+  
+  handleMouseMove(e) {
+    if (!this.isDragging) return;
+    
+    e.preventDefault();
+    
+    // Calculate value change based on vertical mouse movement
+    // Moving up increases value, moving down decreases
+    const deltaY = this.startY - e.clientY; // Invert so up = positive
+    const sensitivity = this.isFineTuning 
+      ? (this.maxVal - this.minVal) / 500  // Fine-tuning: 500 pixels for full range
+      : (this.maxVal - this.minVal) / 100; // Normal: 100 pixels for full range
+    
+    const newValue = this.startValue + (deltaY * sensitivity);
+    
+    // Clamp value to min/max range
+    const clampedValue = Math.max(this.minVal, Math.min(this.maxVal, newValue));
+    
+    // Update current value for real-time feedback
+    this.currentVal = clampedValue;
+    
+    // Send update to LiveView using the new inline parameter event
+    this.pushEvent('update_inline_parameter', {
+      node_id: this.nodeId,
+      parameter_name: this.parameterName,
+      value: clampedValue
+    });
+  },
+  
+  handleMouseUp(e) {
+    if (!this.isDragging) return;
+    
+    e.preventDefault();
+    
+    this.isDragging = false;
+    
+    // Remove visual feedback
+    this.el.style.opacity = '1';
+    document.body.style.cursor = 'default';
+  },
+  
+  handleRightClick(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // TODO: Implement right-click dialog for keyboard value input
+    // For now, just show a simple prompt
+    const newValue = parseFloat(prompt(
+      `Enter new value for ${this.parameterName} (${this.minVal} - ${this.maxVal}):`, 
+      this.currentVal
+    ));
+    
+    if (!isNaN(newValue)) {
+      const clampedValue = Math.max(this.minVal, Math.min(this.maxVal, newValue));
+      
+      // Update current value
+      this.currentVal = clampedValue;
+      
+      // Send update to LiveView
+      this.pushEvent('update_inline_parameter', {
+        node_id: this.nodeId,
+        parameter_name: this.parameterName,
+        value: clampedValue
+      });
+    }
+  }
+};

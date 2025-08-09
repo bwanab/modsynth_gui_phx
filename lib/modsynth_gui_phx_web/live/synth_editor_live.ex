@@ -117,8 +117,14 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
   defp restore_synth_data_if_available(socket) do
     case ModsynthGuiPhx.SynthManager.get_current_synth_data() do
       {:ok, current_synth} ->
+        # Convert backend node map to UI list format if we have original data
+        ui_nodes = case current_synth.data do
+          nil -> []
+          data -> convert_modsynth_nodes_to_ui_format(current_synth.nodes, data["nodes"] || [])
+        end
+        
         socket
-        |> assign(:nodes, current_synth.nodes || [])
+        |> assign(:nodes, ui_nodes)
         |> assign(:connections, current_synth.connections || [])
         |> assign(:current_synth, current_synth)
         |> assign(:current_filename, current_synth.filename || nil)
@@ -654,7 +660,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     end
   end
 
-  def handle_event("update_node_value", %{"node_id" => node_id, "value" => value}, socket) do
+  def handle_event("update_inline_parameter", %{"node_id" => node_id, "parameter_name" => param_name, "value" => value}, socket) do
     node_id = if is_binary(node_id), do: String.to_integer(node_id), else: node_id
     new_value = cond do
       is_number(value) -> value
@@ -667,13 +673,21 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     end
 
     updated_nodes = Enum.map(socket.assigns.nodes, fn node ->
-      if node["id"] == node_id and node["name"] in ["const", "cc-in"] do
-        # Clamp value to min/max range
-        min_val = node["min_val"] || 0.0
-        max_val = node["max_val"] || 10.0
-        clamped_value = max(min_val, min(max_val, new_value))
-
-        Map.put(node, "val", clamped_value)
+      if node["id"] == node_id and node["params"] do
+        case Map.get(node["params"], param_name) do
+          param_config when is_map(param_config) ->
+            min_val = Map.get(param_config, :min, 0.0)
+            max_val = Map.get(param_config, :max, 10.0)
+            # Clamp value to min/max range
+            clamped_value = max(min_val, min(max_val, new_value))
+            
+            # Update the parameter value in the node's params map
+            updated_param_config = Map.put(param_config, :val, clamped_value)
+            updated_params = Map.put(node["params"], param_name, updated_param_config)
+            Map.put(node, "params", updated_params)
+          _ ->
+            node
+        end
       else
         node
       end
@@ -681,9 +695,9 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
 
     socket = assign(socket, :nodes, updated_nodes)
 
-    # If in run mode, send the value to SuperCollider in real-time
+    # If in run mode, send the parameter update to SuperCollider in real-time
     if socket.assigns.mode == :run do
-      send_parameter_to_supercollider(socket, node_id, new_value)
+      send_parameter_to_supercollider(socket, node_id, param_name, new_value)
     end
 
     {:noreply, socket}
@@ -758,10 +772,8 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
         # Update the node in the modal as well
         updated_node = Enum.find(updated_nodes, &(&1["id"] == node_id))
 
-        # Send parameter update to SuperCollider if in run mode
-        if socket.assigns.mode == :run do
-          send_parameter_to_supercollider(socket, node_id, val)
-        end
+        # Legacy const/cc-in functionality - removed since these node types no longer exist
+        # Parameter updates for inline parameters are handled through update_inline_parameter event
 
         socket =
           socket
@@ -999,56 +1011,51 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           Map.put(ui_node, "parameters", modsynth_node.parameters)
       end
 
-      # Add min/max ranges for const and cc-in nodes
-      add_node_ranges(enriched_node)
+      # Add inline parameter controls for nodes that have adjustable parameters  
+      add_inline_parameters(enriched_node)
     end)
   end
 
-  defp add_node_ranges(%{"name" => "const"} = node) do
-    current_val = node["val"] || 5.0  # Default value if none exists
-
-    # Only set default min/max if they don't already exist (preserve saved values)
-    {min_val, max_val} = cond do
-      node["min_val"] && node["max_val"] ->
-        # Use saved values
-        {node["min_val"], node["max_val"]}
-      node["val"] ->
-        # For existing nodes without saved min/max: 0 to 2x current value
-        {0.0, current_val * 2.0}
-      true ->
-        # For new nodes: 0 to 10
-        {0.0, 10.0}
+  defp add_inline_parameters(%{"name" => node_type} = node) do
+    # Get parameter defaults from the SynthManager
+    case ModsynthGuiPhx.SynthManager.load_parameter_defaults() do
+      {:ok, parameter_defaults} ->
+        case Map.get(parameter_defaults, node_type) do
+          nil -> 
+            # No adjustable parameters for this node type
+            node
+          params_map ->
+            # Add inline parameters with defaults, preserving any existing saved values
+            inline_params = Enum.reduce(params_map, %{}, fn {param_name, defaults}, acc ->
+              existing_param = case Map.get(node, "params") do
+                nil -> nil
+                existing_params -> Map.get(existing_params, param_name)
+              end
+              
+              param_config = case existing_param do
+                %{"val" => val, "min" => min, "max" => max} ->
+                  # Use saved values
+                  %{val: val, min: min, max: max}
+                _ ->
+                  # Use defaults from CSV
+                  defaults
+              end
+              
+              Map.put(acc, param_name, param_config)
+            end)
+            
+            Map.put(node, "params", inline_params)
+        end
+      {:error, _reason} ->
+        # If we can't load parameter defaults, return node unchanged
+        node
     end
-
-    node
-    |> Map.put("min_val", min_val)
-    |> Map.put("max_val", max_val)
-    |> Map.put("val", current_val)  # Ensure val is set
   end
-
-  defp add_node_ranges(%{"name" => "cc-in"} = node) do
-    current_val = node["val"] || 64.0  # Default MIDI value (0-127 range)
-
-    # Only set default min/max if they don't already exist (preserve saved values)
-    {min_val, max_val} = if node["min_val"] && node["max_val"] do
-      # Use saved values
-      {node["min_val"], node["max_val"]}
-    else
-      # Default MIDI range 0-127
-      {0.0, 127.0}
-    end
-
-    node
-    |> Map.put("min_val", min_val)
-    |> Map.put("max_val", max_val)
-    |> Map.put("val", current_val)  # Ensure val is set
-  end
-
-  defp add_node_ranges(node), do: node
 
   defp convert_enriched_nodes_to_original_format(enriched_nodes) do
-    # Remove the enriched parameters field added during loading to restore the original format
-    # Keep min_val and max_val as they are used for knob ranges in const widgets
+    # Remove the enriched parameters field added during loading but preserve inline parameters
+    # Keep min_val and max_val for legacy const/cc-in widgets
+    # Keep params field for new inline parameters
     Enum.map(enriched_nodes, fn node ->
       Map.delete(node, "parameters")
     end)
@@ -1173,8 +1180,14 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           String.starts_with?(name, "out_")
         end)
 
+        # Get inline parameter names to exclude from input ports
+        inline_param_names = case Map.get(node, "params") do
+          nil -> []
+          params -> Map.keys(params)
+        end
+        
         input_params = Enum.reject(all_param_names, fn name ->
-          String.starts_with?(name, "out_")
+          String.starts_with?(name, "out_") || name in inline_param_names
         end)
 
         # Ensure we have at least one output
@@ -1184,6 +1197,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
           output_params
         end
 
+        Logger.debug("Inline parameters: #{inspect(inline_param_names)}")
         Logger.debug("Extracted ports - inputs: #{inspect(input_params)}, outputs: #{inspect(final_outputs)}")
 
         %{inputs: input_params, outputs: final_outputs}
@@ -1434,7 +1448,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
 
           <div class="text-xs text-gray-400">
             Canvas: <%= @canvas_size.width %>×<%= @canvas_size.height %> |
-            Nodes: <%= length(@nodes) %> |
+            Nodes: <%= if is_list(@nodes), do: length(@nodes), else: map_size(@nodes) %> |
             Connections: <%= length(@connections) %>
           </div>
 
@@ -2096,8 +2110,17 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
 
     # Get port information for this node
     ports = get_node_ports(assigns.node)
-    max_ports = max(length(ports.inputs), length(ports.outputs))
-    node_height = max(80, 40 + max_ports * 20)  # Dynamic height based on port count
+    
+    # Count inline parameters to include in height calculation
+    inline_param_count = case Map.get(assigns.node, "params") do
+      nil -> 0
+      params -> map_size(params)
+    end
+    
+    # Total height includes input ports + inline parameters + output ports
+    total_left_items = length(ports.inputs) + inline_param_count
+    max_ports = max(total_left_items, length(ports.outputs))
+    node_height = max(80, 40 + max_ports * 20)  # Dynamic height based on port + parameter count
 
     assigns = assign(assigns, :node_color, node_color)
     assigns = assign(assigns, :ports, ports)
@@ -2166,7 +2189,12 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
         ID: <%= @node["id"] %>
       </text>
 
-      <!-- Const and CC-in Node Knob and Value Display -->
+      <!-- Inline Parameter Knobs -->
+      <%= if @node["params"] && map_size(@node["params"]) > 0 do %>
+        <.inline_parameter_knobs node={@node} />
+      <% end %>
+
+      <!-- Legacy Support: Const and CC-in Node Knob and Value Display (deprecated) -->
       <%= if @node["name"] in ["const", "cc-in"] do %>
         <.control_knob node={@node} />
       <% else %>
@@ -2533,6 +2561,140 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     """
   end
 
+  defp inline_parameter_knobs(assigns) do
+    # Get the parameters from the node
+    params = assigns.node["params"] || %{}
+    param_list = Enum.to_list(params)
+    
+    # Get the input port count to position knobs after input ports
+    input_port_count = case Map.get(assigns.node, "parameters") do
+      nil -> 0
+      parameters ->
+        # Count non-output parameters that aren't inline parameters
+        inline_param_names = Map.keys(params)
+        all_param_names = Enum.map(parameters, fn
+          {param_name, _param_spec} when is_binary(param_name) -> param_name
+          [param_name, _param_value] when is_binary(param_name) -> param_name
+          param_name when is_binary(param_name) -> param_name
+          _ -> nil
+        end)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.reject(fn name -> 
+          String.starts_with?(name, "out_") || name in inline_param_names 
+        end)
+        
+        length(all_param_names)
+    end
+    
+    # Calculate knob spacing and positioning
+    knob_size = 6   # Port-sized knobs
+    knob_spacing = 20  # Same spacing as ports
+    start_y = 45 + (input_port_count * 20)  # Start after input ports
+    left_x = 8     # Same x position as input ports
+    label_x = 18   # Position for parameter labels (same as port labels)
+    
+    assigns = assign(assigns, :param_list, param_list)
+    assigns = assign(assigns, :knob_size, knob_size)
+    assigns = assign(assigns, :knob_spacing, knob_spacing)
+    assigns = assign(assigns, :start_y, start_y)
+    assigns = assign(assigns, :left_x, left_x)
+    assigns = assign(assigns, :label_x, label_x)
+    
+    ~H"""
+    <!-- Inline Parameter Knobs -->
+    <g class="inline-parameters">
+      <%= for {{param_name, param_config}, index} <- Enum.with_index(@param_list) do %>
+        <% knob_y = @start_y + index * @knob_spacing %>
+        <% current_val = Map.get(param_config, :val, 0.0) %>
+        <% min_val = Map.get(param_config, :min, 0.0) %>
+        <% max_val = Map.get(param_config, :max, 10.0) %>
+        <% normalized_val = if max_val > min_val do 
+             (current_val - min_val) / (max_val - min_val) 
+           else 
+             0.0 
+           end %>
+        <% angle_degrees = normalized_val * 270 %>
+        <% angle_radians = angle_degrees * :math.pi() / 180 %>
+        <% indicator_x = @left_x + (@knob_size - 2) * :math.cos(angle_radians - :math.pi() / 2) %>
+        <% indicator_y = knob_y + (@knob_size - 2) * :math.sin(angle_radians - :math.pi() / 2) %>
+        
+        <!-- Parameter Knob (styled like input port) -->
+        <g class="parameter-knob">
+          <!-- Knob Background Circle (like input jack) -->
+          <circle 
+            cx={@left_x} 
+            cy={knob_y} 
+            r="6" 
+            fill="#2D3748" 
+            stroke="#4A5568" 
+            stroke-width="2" 
+            class="input-jack" 
+          />
+          
+          <!-- Knob Center (like input port) -->
+          <circle
+            cx={@left_x}
+            cy={knob_y}
+            r="3"
+            fill="#F59E0B"
+            class="parameter-knob-center"
+          />
+          
+          <!-- Value Indicator Line -->
+          <line
+            x1={@left_x}
+            y1={knob_y}
+            x2={indicator_x}
+            y2={indicator_y}
+            stroke="#F59E0B"
+            stroke-width="1.5"
+            stroke-linecap="round"
+          />
+          
+          <!-- Interactive Area for Dragging -->
+          <circle
+            id={"inline-knob-#{@node["id"]}-#{param_name}"}
+            cx={@left_x}
+            cy={knob_y}
+            r="9"
+            fill="transparent"
+            phx-hook="InlineParameterKnob"
+            data-node-id={@node["id"]}
+            data-parameter-name={param_name}
+            data-current-val={current_val}
+            data-min-val={min_val}
+            data-max-val={max_val}
+            style="cursor: pointer; pointer-events: all;"
+          />
+          
+          <!-- Parameter Name Label -->
+          <text
+            x={@label_x}
+            y={knob_y + 1}
+            dominant-baseline="middle"
+            class="text-xs fill-gray-300"
+            font-size="10"
+          >
+            <%= param_name %>
+          </text>
+          
+          <!-- Current Value Display (right aligned) -->
+          <text
+            x="125"
+            y={knob_y + 1}
+            text-anchor="end"
+            dominant-baseline="middle"
+            class="text-xs fill-yellow-400"
+            font-size="9"
+          >
+            <%= Float.round(current_val / 1.0, 2) %>
+          </text>
+        </g>
+      <% end %>
+    </g>
+    """
+  end
+
   # Private helper functions
 
   defp parse_float(str) do
@@ -2576,7 +2738,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       |> Map.put("min_val", min_val)
       |> Map.put("max_val", max_val)
     else
-      add_node_ranges(base_node)
+      add_inline_parameters(base_node)
     end
 
     # Add enriched node data from available types
@@ -2605,22 +2767,20 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     end
   end
 
-  defp send_parameter_to_supercollider(socket, node_id, value) do
-    # Find the input control for this node
-    input_control = Enum.find(socket.assigns.input_control_list, fn ic ->
-      ic.node_id == node_id
-    end)
-
-    if input_control do
+  defp send_parameter_to_supercollider(socket, node_id, parameter_name, value) do
+    # Find the node to get its SuperCollider ID
+    node = Enum.find(socket.assigns.nodes, fn n -> n["id"] == node_id end)
+    
+    if node && node["sc_id"] do
       try do
-        ScClient.set_control(input_control.sc_id, input_control.control_name, value)
-        Logger.debug("Set control for node #{node_id}: #{input_control.sc_id}.#{input_control.control_name} = #{value}")
+        ScClient.set_control(node["sc_id"], parameter_name, value)
+        Logger.debug("Set inline control for node #{node_id}: #{node["sc_id"]}.#{parameter_name} = #{value}")
       catch
         error ->
-          Logger.error("Failed to set control for node #{node_id}: #{inspect(error)}")
+          Logger.error("Failed to set inline control for node #{node_id}: #{inspect(error)}")
       end
     else
-      Logger.warning("No input control found for node #{node_id}")
+      Logger.warning("No node found or no sc_id for node #{node_id}")
     end
   end
 

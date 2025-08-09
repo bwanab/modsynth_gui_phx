@@ -48,6 +48,10 @@ defmodule ModsynthGuiPhx.SynthManager do
     GenServer.call(__MODULE__, :get_synth_status)
   end
 
+  def load_parameter_defaults do
+    GenServer.call(__MODULE__, :load_parameter_defaults)
+  end
+
   def get_current_synth_data do
     GenServer.call(__MODULE__, :get_current_synth_data)
   end
@@ -169,6 +173,17 @@ defmodule ModsynthGuiPhx.SynthManager do
 
   def handle_call(:get_current_synth_data, _from, %{current_synth: synth} = state) do
     {:reply, {:ok, synth}, state}
+  end
+
+  def handle_call(:load_parameter_defaults, _from, state) do
+    try do
+      parameter_defaults = load_parameter_defaults_from_csv()
+      {:reply, {:ok, parameter_defaults}, state}
+    catch
+      error ->
+        Logger.error("Error loading parameter defaults: #{inspect(error)}")
+        {:reply, {:error, "Error loading parameter defaults: #{inspect(error)}"}, state}
+    end
   end
 
   def handle_call(:get_available_node_types, _from, state) do
@@ -327,6 +342,71 @@ defmodule ModsynthGuiPhx.SynthManager do
     # Update state to reflect that synth is no longer running but preserve synth data
     new_state = %{state | synth_running: false, midi_player_pid: nil}
     {:noreply, new_state}
+  end
+
+  # Private helper functions
+
+  defp load_parameter_defaults_from_csv() do
+    # Load default parameters from sc_em directory
+    default_csv_path = Path.join(["..", "sc_em", "sc_def_default_input_settings.csv"])
+    default_params = parse_parameter_csv(default_csv_path)
+
+    # Load user overrides from ~/.modsynth directory
+    user_csv_path = Path.expand("~/.modsynth/sc_def_input_settings.csv")
+    user_params = if File.exists?(user_csv_path) do
+      parse_parameter_csv(user_csv_path)
+    else
+      %{}
+    end
+
+    # Merge user parameters over defaults
+    Map.merge(default_params, user_params)
+  end
+
+  defp parse_parameter_csv(csv_path) do
+    case File.read(csv_path) do
+      {:ok, content} ->
+        content
+        |> String.split("\n", trim: true)
+        |> Enum.drop(1)  # Skip header row
+        |> Enum.reduce(%{}, fn line, acc ->
+          case String.split(line, ",", trim: true) do
+            [sc_def_name, control_name, current_val, min_val, max_val] ->
+              # Convert string values to floats, handling both integers and floats
+              current = parse_numeric(current_val)
+              min = parse_numeric(min_val)
+              max = parse_numeric(max_val)
+              
+              # Store nested by sc_def_name then control_name
+              param_info = %{val: current, min: min, max: max}
+              
+              case Map.get(acc, sc_def_name) do
+                nil ->
+                  Map.put(acc, sc_def_name, %{control_name => param_info})
+                existing_params ->
+                  updated_params = Map.put(existing_params, control_name, param_info)
+                  Map.put(acc, sc_def_name, updated_params)
+              end
+            _ ->
+              # Skip malformed lines
+              acc
+          end
+        end)
+      {:error, reason} ->
+        Logger.warning("Could not read parameter CSV file #{csv_path}: #{inspect(reason)}")
+        %{}
+    end
+  end
+
+  defp parse_numeric(str) do
+    case Float.parse(str) do
+      {value, _} -> value
+      :error ->
+        case Integer.parse(str) do
+          {value, _} -> value / 1.0  # Convert to float
+          :error -> 0.0  # Default fallback
+        end
+    end
   end
 
 end
