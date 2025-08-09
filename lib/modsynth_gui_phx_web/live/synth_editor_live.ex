@@ -1058,7 +1058,12 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     require Logger
     Logger.debug("Converting #{length(connections)} connections to port format")
 
-    Enum.map(connections, fn conn ->
+    Enum.filter(connections, fn conn ->
+      from_node = Enum.find(nodes, &(&1["id"] == conn["from_node"]["id"]))
+      to_node = Enum.find(nodes, &(&1["id"] == conn["to_node"]["id"]))
+      from_node && to_node
+    end)
+    |> Enum.map(fn conn ->
       Logger.debug("Original connection: #{inspect(conn)}")
 
       # Find the from and to nodes
