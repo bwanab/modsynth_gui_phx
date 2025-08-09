@@ -352,6 +352,9 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
             |> assign(:input_control_list, input_control_list)
             |> assign(:connection_list, connection_list)
 
+            # Send initial parameter values to SuperCollider
+            send_initial_parameter_values(socket)
+
             # Start polling for bus values if display is enabled
             if socket.assigns.bus_value_display do
               send(self(), :fetch_connection_values)
@@ -695,10 +698,8 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
 
     socket = assign(socket, :nodes, updated_nodes)
 
-    # If in run mode, send the parameter update to SuperCollider in real-time
-    if socket.assigns.mode == :run do
-      send_parameter_to_supercollider(socket, node_id, param_name, new_value)
-    end
+    # Send the parameter update to SuperCollider in real-time
+    send_parameter_to_supercollider(socket, node_id, param_name, new_value)
 
     {:noreply, socket}
   end
@@ -2782,6 +2783,17 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     else
       Logger.warning("No node found or no sc_id for node #{node_id}")
     end
+  end
+
+  defp send_initial_parameter_values(socket) do
+    Enum.each(socket.assigns.nodes, fn node ->
+      if node["params"] do
+        Enum.each(node["params"], fn {param_name, param_config} ->
+          current_val = Map.get(param_config, :val, 0.0)
+          send_parameter_to_supercollider(socket, node["id"], param_name, current_val)
+        end)
+      end
+    end)
   end
 
   defp format_bus_value(value) when is_number(value) do
