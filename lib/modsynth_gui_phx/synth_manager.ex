@@ -94,8 +94,8 @@ defmodule ModsynthGuiPhx.SynthManager do
   def handle_call({:load_synth, synth_data}, _from, %{available_node_types: synths} = state) do
     try do
 
-      {nodes1, connections1, dims} = Modsynth.specs_to_data(synths, synth_data)
-      {nodes, connections} = Modsynth.build_modules({nodes1, connections1, dims}, &MidiInClient.register_gate/1)
+      {nodes, connections, dims} = Modsynth.specs_to_data(synths, synth_data)
+      #{nodes, connections} = Modsynth.build_modules({nodes1, connections1, dims}, &MidiInClient.register_gate/1)
       # Log the structure of the nodes for debugging
       Logger.debug("Nodes structure: #{inspect(nodes)}")
       Logger.debug("Connections structure: #{inspect(connections)}")
@@ -288,11 +288,11 @@ defmodule ModsynthGuiPhx.SynthManager do
   def handle_call({:play_synth_with_current_data, device_name, current_synth_data}, _from, %{available_node_types: synths} = state) do
     try do
       # Use current synth data instead of stored data
-      {input_control_list, _node_map, connection_list} = Modsynth.specs_to_data(synths, current_synth_data)
+      {input_control_list, node_map, connection_list} = Modsynth.specs_to_data(synths, current_synth_data)
       |> Modsynth.play(device_name)
 
       new_state = %{state | synth_running: true}
-      {:reply, {:ok, {"Synth started with device: #{device_name}", input_control_list, connection_list}}, new_state}
+      {:reply, {:ok, {"Synth started with device: #{device_name}", input_control_list, node_map, connection_list}}, new_state}
     catch
       error ->
         Logger.error("Error playing synth with device #{device_name}: #{inspect(error)}")
@@ -313,13 +313,13 @@ defmodule ModsynthGuiPhx.SynthManager do
       end
 
       # Use current synth data instead of stored data
-      {input_control_list, _node_map, connection_list} = Modsynth.specs_to_data(synths, current_synth_data)
+      {input_control_list, node_map, connection_list} = Modsynth.specs_to_data(synths, current_synth_data)
       |> Modsynth.play("virtual")
 
       pid = MidiPlayer.play(midi_file_path, synth: virtual_conn)
       MidiPlayer.notify_when_play_done(pid)
       new_state = %{state | synth_running: true, midi_player_pid: pid, virtual_conn: virtual_conn}
-      {:reply, {:ok, {"Synth started with STrack data", input_control_list, connection_list}}, new_state}
+      {:reply, {:ok, {"Synth started with STrack data", input_control_list, node_map, connection_list}}, new_state}
     catch
       error ->
         Logger.error("Error playing MIDI file #{midi_file_path}: #{inspect(error)}")

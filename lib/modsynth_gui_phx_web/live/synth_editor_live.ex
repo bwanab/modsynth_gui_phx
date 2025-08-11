@@ -344,11 +344,15 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
         current_synth_data = create_current_synth_data(socket)
 
         case ModsynthGuiPhx.SynthManager.play_synth_with_current_data(device_name, current_synth_data) do
-          {:ok, {message, input_control_list, connection_list}} ->
+          {:ok, {message, input_control_list, node_map, connection_list}} ->
+            # Update frontend nodes with sc_id values from backend
+            updated_nodes = update_nodes_with_sc_ids(socket.assigns.nodes, node_map)
+            
             socket = socket
             |> put_flash(:info, message)
             |> assign(:play_menu, %{socket.assigns.play_menu | visible: false})
             |> assign(:mode, :run)
+            |> assign(:nodes, updated_nodes)
             |> assign(:input_control_list, input_control_list)
             |> assign(:connection_list, connection_list)
 
@@ -406,11 +410,15 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       current_synth_data = create_current_synth_data(socket)
 
       case ModsynthGuiPhx.SynthManager.play_midi_file_with_current_data(midi_file_path, current_synth_data) do
-        {:ok, {message, input_control_list, connection_list}} ->
+        {:ok, {message, input_control_list, node_map, connection_list}} ->
+          # Update frontend nodes with sc_id values from backend
+          updated_nodes = update_nodes_with_sc_ids(socket.assigns.nodes, node_map)
+          
           socket = socket
           |> put_flash(:info, message)
           |> assign(:play_menu, %{socket.assigns.play_menu | visible: false})
           |> assign(:mode, :run)
+          |> assign(:nodes, updated_nodes)
           |> assign(:input_control_list, input_control_list)
           |> assign(:connection_list, connection_list)
 
@@ -821,13 +829,17 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     case execute_strack_code(socket.assigns.strack_code) do
       {:ok, result} ->
         case play_strack_map_with_current_synth(result, socket) do
-          {:ok, {message, input_control_list, connection_list}} ->
+          {:ok, {message, input_control_list, node_map, connection_list}} ->
+            # Update frontend nodes with sc_id values from backend
+            updated_nodes = update_nodes_with_sc_ids(socket.assigns.nodes, node_map)
+            
             socket =
               socket
               |> assign(:strack_playing, true)
               |> assign(:strack_result, result)
               |> assign(:strack_error, nil)
               |> assign(:mode, :run)
+              |> assign(:nodes, updated_nodes)
               |> assign(:input_control_list, input_control_list)
               |> assign(:connection_list, connection_list)
               |> put_flash(:info, message)
@@ -1354,8 +1366,8 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       current_synth_data = create_current_synth_data(socket)
 
       case ModsynthGuiPhx.SynthManager.play_midi_file_with_current_data(strack_map, current_synth_data) do
-        {:ok, {message, input_control_list, connection_list}} ->
-          {:ok, {message, input_control_list, connection_list}}
+        {:ok, {message, input_control_list, node_map, connection_list}} ->
+          {:ok, {message, input_control_list, node_map, connection_list}}
         {:error, error} ->
           {:error, error}
       end
@@ -2786,6 +2798,19 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     else
       Logger.warning("No node found or no sc_id for node #{node_id}")
     end
+  end
+
+  defp update_nodes_with_sc_ids(frontend_nodes, backend_node_map) do
+    Enum.map(frontend_nodes, fn node ->
+      case Map.get(backend_node_map, node["id"]) do
+        nil -> 
+          # Node not found in backend (probably filtered out), keep as is
+          node
+        backend_node ->
+          # Update frontend node with sc_id from backend
+          Map.put(node, "sc_id", backend_node.sc_id)
+      end
+    end)
   end
 
   defp send_initial_parameter_values(socket) do

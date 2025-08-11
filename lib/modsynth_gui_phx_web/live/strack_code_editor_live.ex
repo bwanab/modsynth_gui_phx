@@ -235,7 +235,7 @@ defmodule ModsynthGuiPhxWeb.STrackCodeEditorLive do
           # Use SynthManager's play_midi_file_with_current_data function
           # This ensures proper synth lifecycle management and state consistency
           case ModsynthGuiPhx.SynthManager.play_midi_file_with_current_data(strack_map, current_synth.data) do
-            {:ok, {message, _input_control_list, _connection_list}} ->
+            {:ok, {message, _input_control_list, _node_map, _connection_list}} ->
               IO.puts("STrack playback started successfully: #{message}")
               # Return success - SynthManager handles the MIDI player PID internally
               {:ok, :managed_by_synth_manager}
