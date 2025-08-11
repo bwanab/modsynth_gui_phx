@@ -2133,10 +2133,27 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       params -> map_size(params)
     end
     
-    # Total height includes input ports + inline parameters + output ports
-    total_left_items = length(ports.inputs) + inline_param_count
-    max_ports = max(total_left_items, length(ports.outputs))
-    node_height = max(80, 40 + max_ports * 20)  # Dynamic height based on port + parameter count
+    # Calculate node height using the same logic as parameter positioning
+    # Filter out adjustable parameters from input ports since they're now inline controls
+    adjustable_param_names = case Map.get(assigns.node, "params") do
+      nil -> []
+      params -> Map.keys(params)
+    end
+    actual_input_ports = Enum.reject(ports.inputs, &(&1 in adjustable_param_names))
+    
+    input_port_count = length(actual_input_ports)
+    output_port_count = length(ports.outputs)
+    
+    # Calculate where adjustable parameters end up (same logic as inline_parameter_knobs)
+    min_start_after_inputs = 45 + (input_port_count * 20)
+    min_start_after_outputs = 45 + (output_port_count * 20)
+    params_start_y = max(min_start_after_inputs, min_start_after_outputs)
+    params_end_y = params_start_y + (inline_param_count * 20)
+    
+    # Node height should accommodate whichever extends lower: output ports or parameters
+    output_ports_end_y = 45 + (output_port_count * 20)
+    total_content_height = max(output_ports_end_y, params_end_y)
+    node_height = max(80, total_content_height + 25)  # Add 25px bottom padding
 
     assigns = assign(assigns, :node_color, node_color)
     assigns = assign(assigns, :ports, ports)
@@ -2582,30 +2599,26 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     params = assigns.node["params"] || %{}
     param_list = Enum.to_list(params)
     
-    # Get the input port count to position knobs after input ports
-    input_port_count = case Map.get(assigns.node, "parameters") do
-      nil -> 0
-      parameters ->
-        # Count non-output parameters that aren't inline parameters
-        inline_param_names = Map.keys(params)
-        all_param_names = Enum.map(parameters, fn
-          {param_name, _param_spec} when is_binary(param_name) -> param_name
-          [param_name, _param_value] when is_binary(param_name) -> param_name
-          param_name when is_binary(param_name) -> param_name
-          _ -> nil
-        end)
-        |> Enum.reject(&is_nil/1)
-        |> Enum.reject(fn name -> 
-          String.starts_with?(name, "out_") || name in inline_param_names 
-        end)
-        
-        length(all_param_names)
-    end
+    # Get port information for this node
+    ports = get_node_ports(assigns.node)
+    
+    # Filter out adjustable parameters from input ports since they're now inline controls
+    adjustable_param_names = Map.keys(params)
+    actual_input_ports = Enum.reject(ports.inputs, &(&1 in adjustable_param_names))
+    
+    input_port_count = length(actual_input_ports)
+    output_port_count = length(ports.outputs)
     
     # Calculate knob spacing and positioning
     knob_size = 6   # Port-sized knobs
     knob_spacing = 20  # Same spacing as ports
-    start_y = 45 + (input_port_count * 20)  # Start after input ports
+    
+    # If output ports extend beyond input ports, start adjustable parameters after the last output port
+    # This prevents overlapping between output port labels and parameter knobs/values
+    min_start_after_inputs = 45 + (input_port_count * 20)
+    min_start_after_outputs = 45 + (output_port_count * 20)
+    start_y = max(min_start_after_inputs, min_start_after_outputs)
+    
     left_x = 8     # Same x position as input ports
     label_x = 18   # Position for parameter labels (same as port labels)
     
