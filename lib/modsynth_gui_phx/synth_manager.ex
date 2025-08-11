@@ -37,7 +37,7 @@ defmodule ModsynthGuiPhx.SynthManager do
   end
 
   def stop_synth do
-    GenServer.call(__MODULE__, :stop_synth)
+    GenServer.call(__MODULE__, :stop_synth, 10000)
   end
 
   def get_available_synthdefs do
@@ -77,6 +77,11 @@ defmodule ModsynthGuiPhx.SynthManager do
   end
 
   def play_midi_file_with_current_data(midi_file_path, current_synth_data) do
+    if Logger.level() == :debug do
+      stacktrace = Process.info(self(), :current_stacktrace)
+      IO.inspect(stacktrace)
+    end
+
     GenServer.call(__MODULE__, {:play_midi_file_with_current_data, midi_file_path, current_synth_data})
   end
 
@@ -89,11 +94,12 @@ defmodule ModsynthGuiPhx.SynthManager do
   def handle_call({:load_synth, synth_data}, _from, %{available_node_types: synths} = state) do
     try do
 
-      {nodes, connections, dims} = Modsynth.specs_to_data(synths, synth_data)
-
+      {nodes1, connections1, dims} = Modsynth.specs_to_data(synths, synth_data)
+      {nodes, connections} = Modsynth.build_modules({nodes1, connections1, dims}, &MidiInClient.register_gate/1)
       # Log the structure of the nodes for debugging
       Logger.debug("Nodes structure: #{inspect(nodes)}")
       Logger.debug("Connections structure: #{inspect(connections)}")
+      Logger.debug("Synth data: #{inspect(synth_data)}")
 
       new_state = %{state |
         current_synth: %{
@@ -376,10 +382,10 @@ defmodule ModsynthGuiPhx.SynthManager do
               current = parse_numeric(current_val)
               min = parse_numeric(min_val)
               max = parse_numeric(max_val)
-              
+
               # Store nested by sc_def_name then control_name
               param_info = %{val: current, min: min, max: max}
-              
+
               case Map.get(acc, sc_def_name) do
                 nil ->
                   Map.put(acc, sc_def_name, %{control_name => param_info})

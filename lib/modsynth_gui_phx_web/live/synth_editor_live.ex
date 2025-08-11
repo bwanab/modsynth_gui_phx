@@ -679,13 +679,13 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
       if node["id"] == node_id and node["params"] do
         case Map.get(node["params"], param_name) do
           param_config when is_map(param_config) ->
-            min_val = Map.get(param_config, :min, 0.0)
-            max_val = Map.get(param_config, :max, 10.0)
+            min_val = Map.get(param_config, "min", 0.0)
+            max_val = Map.get(param_config, "max", 10.0)
             # Clamp value to min/max range
             clamped_value = max(min_val, min(max_val, new_value))
             
             # Update the parameter value in the node's params map
-            updated_param_config = Map.put(param_config, :val, clamped_value)
+            updated_param_config = Map.put(param_config, "val", clamped_value)
             updated_params = Map.put(node["params"], param_name, updated_param_config)
             Map.put(node, "params", updated_params)
           _ ->
@@ -1035,11 +1035,14 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
               
               param_config = case existing_param do
                 %{"val" => val, "min" => min, "max" => max} ->
-                  # Use saved values
-                  %{val: val, min: min, max: max}
+                  # Use saved values with string keys for backend compatibility
+                  %{"val" => val, "min" => min, "max" => max}
+                %{val: val, min: min, max: max} ->
+                  # Handle atom key format as well, convert to string keys
+                  %{"val" => val, "min" => min, "max" => max}
                 _ ->
-                  # Use defaults from CSV
-                  defaults
+                  # Use defaults from CSV, ensure string keys for backend
+                  %{"val" => defaults.val, "min" => defaults.min, "max" => defaults.max}
               end
               
               Map.put(acc, param_name, param_config)
@@ -2606,9 +2609,9 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     <g class="inline-parameters">
       <%= for {{param_name, param_config}, index} <- Enum.with_index(@param_list) do %>
         <% knob_y = @start_y + index * @knob_spacing %>
-        <% current_val = Map.get(param_config, :val, 0.0) %>
-        <% min_val = Map.get(param_config, :min, 0.0) %>
-        <% max_val = Map.get(param_config, :max, 10.0) %>
+        <% current_val = Map.get(param_config, "val", 0.0) %>
+        <% min_val = Map.get(param_config, "min", 0.0) %>
+        <% max_val = Map.get(param_config, "max", 10.0) %>
         <% normalized_val = if max_val > min_val do 
              (current_val - min_val) / (max_val - min_val) 
            else 
@@ -2789,7 +2792,7 @@ defmodule ModsynthGuiPhxWeb.SynthEditorLive do
     Enum.each(socket.assigns.nodes, fn node ->
       if node["params"] do
         Enum.each(node["params"], fn {param_name, param_config} ->
-          current_val = Map.get(param_config, :val, 0.0)
+          current_val = Map.get(param_config, "val", 0.0)
           send_parameter_to_supercollider(socket, node["id"], param_name, current_val)
         end)
       end
