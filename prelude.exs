@@ -7,8 +7,10 @@
     root = Keyword.get(opts, :root, :C)
     octave = Keyword.get(opts, :octave, 3)
     duration = Keyword.get(opts, :duration, 0.5)
+    staccato = Keyword.get(opts, :staccato, false)
     repeats = Keyword.get(opts, :repeats, 1)
-    chords = MusicBuild.Examples.ArpeggioProgressions.build_chords(chord_syms, root, octave, duration, 0)
+    chords = MusicBuild.Examples.ArpeggioProgressions.build_chords(chord_syms, root,
+                    octave: octave, duration: duration, staccato: staccato, channel: 0)
     Enum.map(Enum.zip(chords, patterns), fn {c, p} -> Arpeggio.new(c, p, duration, 0) end)
             |> List.duplicate(repeats)
             |> List.flatten
